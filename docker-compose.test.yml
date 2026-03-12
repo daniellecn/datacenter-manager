@@ -1,0 +1,22 @@
+# Test overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d postgres
+#
+# Provides a dedicated test database (datacenter_test) alongside the dev DB.
+# Backend tests connect via TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/datacenter_test
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: datacenter
+    # Create the test database alongside the main one
+    entrypoint: >
+      bash -c "
+        docker-entrypoint.sh postgres &
+        sleep 3 &&
+        psql -U postgres -c 'CREATE DATABASE datacenter_test;' 2>/dev/null || true &&
+        wait
+      "

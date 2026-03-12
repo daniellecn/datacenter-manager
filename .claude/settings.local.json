@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(py:*)",
+      "Bash(wc:*)",
+      "Bash(docker ps:*)",
+      "Bash(openssl req:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(start:*)",
+      "Bash(winget upgrade:*)",
+      "Bash(ls:*)",
+      "Bash(~/datacenter-manager/backend/app/api/v1/endpoints/integrations.py:*)",
+      "Bash(~/datacenter-manager/frontend/.eslintrc.cjs:*)",
+      "Bash(python3:*)",
+      "Bash(/tmp/fix_usermgmt.js:*)",
+      "Bash(pip install:*)"
+    ]
+  }
+}
