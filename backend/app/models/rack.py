@@ -11,16 +11,16 @@ from app.models.enums import AirflowDirection, RackStatus
 from app.models.mixins import UUIDPrimaryKey, TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.room import Room
+    from app.models.corridor import Corridor
     from app.models.device import Device
 
 
 class Rack(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "racks"
 
-    room_id: Mapped[uuid.UUID] = mapped_column(
+    corridor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("rooms.id", ondelete="RESTRICT"),
+        ForeignKey("corridors.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -43,5 +43,5 @@ class Rack(UUIDPrimaryKey, TimestampMixin, Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     # Relationships
-    room: Mapped["Room"] = relationship(back_populates="racks")
+    corridor: Mapped["Corridor"] = relationship(back_populates="racks")
     devices: Mapped[list["Device"]] = relationship(back_populates="rack")

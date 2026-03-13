@@ -1,7 +1,7 @@
 """
 Physical layer — Racks
 
-GET    /racks                   paginated list (filter ?room_id=, ?status=)
+GET    /racks                   paginated list (filter ?corridor_id=, ?room_id=, ?status=)
 POST   /racks                   create
 GET    /racks/{id}              single
 PUT    /racks/{id}              update
@@ -25,8 +25,8 @@ from app.core.exceptions import NotFoundError
 from app.core.pagination import Page, PaginationDep
 from app.core.security import ActiveUser, OperatorUser
 from app.crud.audit_log import crud_audit_log
+from app.crud.corridor import crud_corridor
 from app.crud.rack import crud_rack
-from app.crud.room import crud_room
 from app.models.device import Device
 from app.models.enums import AuditAction, DeviceStatus, RackStatus
 from app.schemas.device import DeviceRead
@@ -69,14 +69,20 @@ class RackPowerSummary(BaseModel):
 async def list_racks(
     _current_user: ActiveUser,
     pagination: PaginationDep,
+    corridor_id: uuid.UUID | None = Query(None),
     room_id: uuid.UUID | None = Query(None),
     status: RackStatus | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> Page[RackRead]:
+    from app.models.corridor import Corridor  # noqa: PLC0415
     from app.models.rack import Rack  # noqa: PLC0415
     filters = []
-    if room_id:
-        filters.append(Rack.room_id == room_id)
+    if corridor_id:
+        filters.append(Rack.corridor_id == corridor_id)
+    elif room_id:
+        # Convenience: filter by room via join through corridors
+        corridor_subq = select(Corridor.id).where(Corridor.room_id == room_id)
+        filters.append(Rack.corridor_id.in_(corridor_subq))
     if status:
         filters.append(Rack.status == status)
     items, total = await crud_rack.get_multi(
@@ -96,9 +102,9 @@ async def create_rack(
     current_user: OperatorUser,
     db: AsyncSession = Depends(get_db),
 ) -> RackRead:
-    room = await crud_room.get(db, body.room_id)
-    if not room:
-        raise NotFoundError("Room", str(body.room_id))
+    corridor = await crud_corridor.get(db, body.corridor_id)
+    if not corridor:
+        raise NotFoundError("Corridor", str(body.corridor_id))
     obj = await crud_rack.create(db, obj_in=body)
     await crud_audit_log.create(
         db,

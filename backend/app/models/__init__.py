@@ -5,6 +5,7 @@
 from app.models.user import User  # noqa: F401
 from app.models.datacenter import DataCenter  # noqa: F401
 from app.models.room import Room  # noqa: F401
+from app.models.corridor import Corridor  # noqa: F401
 from app.models.rack import Rack  # noqa: F401
 from app.models.vlan import VLAN  # noqa: F401
 from app.models.san_fabric import SANFabric  # noqa: F401
@@ -28,6 +29,7 @@ __all__ = [
     "User",
     "DataCenter",
     "Room",
+    "Corridor",
     "Rack",
     "VLAN",
     "SANFabric",

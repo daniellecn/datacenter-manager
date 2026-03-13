@@ -9,7 +9,7 @@ from app.models.enums import AirflowDirection, RackStatus
 
 
 class RackBase(BaseModel):
-    room_id: uuid.UUID
+    corridor_id: uuid.UUID
     name: str
     row: Optional[str] = None
     column: Optional[str] = None
@@ -30,6 +30,7 @@ class RackCreate(RackBase):
 
 
 class RackUpdate(BaseModel):
+    corridor_id: Optional[uuid.UUID] = None
     name: Optional[str] = None
     row: Optional[str] = None
     column: Optional[str] = None

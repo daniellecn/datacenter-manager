@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, Zap } from "lucide-react";
 import { useRacks, useCreateRack, useUpdateRack, useDeleteRack, useRackPowerSummary } from "@/api/racks";
+import { useCorridors } from "@/api/corridors";
 import { useRooms } from "@/api/rooms";
 import { Table } from "@/components/common/Table";
 import { Modal } from "@/components/common/Modal";
@@ -16,14 +17,14 @@ const AIRFLOW = ["front_to_back", "back_to_front", "top_exhaust"];
 const RACK_STATUS = ["active", "reserved", "decommissioned"];
 
 interface FormData {
-  room_id: string; name: string; row: string; column: string;
+  corridor_id: string; name: string; row: string; column: string;
   total_u: string; max_power_w: string; max_weight_kg: string;
   airflow_direction: string; power_feed_count: string;
   manufacturer: string; model: string; serial_number: string;
   status: string; notes: string;
 }
-function emptyForm(roomId: string): FormData {
-  return { room_id: roomId, name: "", row: "", column: "",
+function emptyForm(corridorId: string): FormData {
+  return { corridor_id: corridorId, name: "", row: "", column: "",
     total_u: "42", max_power_w: "", max_weight_kg: "",
     airflow_direction: "", power_feed_count: "2",
     manufacturer: "", model: "", serial_number: "",
@@ -47,28 +48,31 @@ function PowerBar({ rackId }: { rackId: string }) {
 
 export default function Racks() {
   const [searchParams] = useSearchParams();
-  const roomFilter = searchParams.get("room_id") ?? undefined;
+  const corridorFilter = searchParams.get("corridor_id") ?? undefined;
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useRacks({ room_id: roomFilter, page, size: 50 });
+  const { data, isLoading } = useRacks({ corridor_id: corridorFilter, page, size: 50 });
+  const { data: corridorData } = useCorridors({ page: 1, size: 200 });
   const { data: roomData } = useRooms({ page: 1, size: 200 });
+  const corridorList = corridorData?.items ?? [];
   const roomList = roomData?.items ?? [];
+  const corridorMap = Object.fromEntries(corridorList.map((c) => [c.id, c]));
   const roomMap = Object.fromEntries(roomList.map((r) => [r.id, r.name]));
 
   const createMut = useCreateRack();
   const deleteMut = useDeleteRack();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<RackRead | null>(null);
-  const [form, setForm] = useState<FormData>(emptyForm(roomFilter ?? ""));
+  const [form, setForm] = useState<FormData>(emptyForm(corridorFilter ?? ""));
   const [deleteTarget, setDeleteTarget] = useState<RackRead | null>(null);
   const [error, setError] = useState("");
   const updateMut = useUpdateRack(editing?.id ?? "");
 
-  function openCreate() { setEditing(null); setForm(emptyForm(roomFilter ?? "")); setError(""); setModalOpen(true); }
+  function openCreate() { setEditing(null); setForm(emptyForm(corridorFilter ?? "")); setError(""); setModalOpen(true); }
   function openEdit(r: RackRead) {
     setEditing(r);
-    setForm({ room_id: r.room_id, name: r.name, row: r.row ?? "", column: r.column ?? "",
+    setForm({ corridor_id: r.corridor_id, name: r.name, row: r.row ?? "", column: r.column ?? "",
       total_u: r.total_u.toString(), max_power_w: r.max_power_w?.toString() ?? "",
       max_weight_kg: r.max_weight_kg ?? "", airflow_direction: r.airflow_direction ?? "",
       power_feed_count: r.power_feed_count.toString(),
@@ -79,7 +83,7 @@ export default function Racks() {
 
   function toBody(f: FormData) {
     return {
-      room_id: f.room_id, name: f.name, row: f.row || null, column: f.column || null,
+      corridor_id: f.corridor_id, name: f.name, row: f.row || null, column: f.column || null,
       total_u: parseInt(f.total_u) || 42,
       max_power_w: f.max_power_w ? parseInt(f.max_power_w) : null,
       max_weight_kg: f.max_weight_kg ? parseFloat(f.max_weight_kg) : null,
@@ -93,7 +97,7 @@ export default function Racks() {
   async function handleSave() {
     setError("");
     if (!form.name.trim()) { setError("Name is required."); return; }
-    if (!form.room_id) { setError("Room is required."); return; }
+    if (!form.corridor_id) { setError("Corridor is required."); return; }
     try {
       if (editing) await updateMut.mutateAsync(toBody(form));
       else await createMut.mutateAsync(toBody(form));
@@ -105,16 +109,26 @@ export default function Racks() {
 
   const set = (k: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
-  const roomName = roomFilter ? roomMap[roomFilter] : null;
+
+  const currentCorridor = corridorFilter ? corridorMap[corridorFilter] : null;
+  const currentRoomName = currentCorridor ? roomMap[currentCorridor.room_id] : null;
+
+  const crumbs = currentCorridor
+    ? [
+        { label: "Rooms", to: "/rooms" },
+        ...(currentRoomName ? [{ label: currentRoomName, to: `/corridors?room_id=${currentCorridor.room_id}` }] : []),
+        { label: "Corridors", to: `/corridors?room_id=${currentCorridor.room_id}` },
+        { label: currentCorridor.name },
+        { label: "Racks" },
+      ]
+    : [{ label: "Racks" }];
 
   return (
     <div className="space-y-4">
-      <Breadcrumbs crumbs={roomName
-        ? [{ label: "Rooms", to: "/rooms" }, { label: roomName }, { label: "Racks" }]
-        : [{ label: "Racks" }]} />
+      <Breadcrumbs crumbs={crumbs} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">
-          Racks {roomName && <span className="text-lg font-normal text-gray-500 ml-2">in {roomName}</span>}
+          Racks {currentCorridor && <span className="text-lg font-normal text-gray-500 ml-2">in {currentCorridor.name}</span>}
         </h1>
         <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
           <Plus size={16} /> Add Rack
@@ -128,8 +142,12 @@ export default function Racks() {
         onRowClick={(r) => navigate(`/devices?rack_id=${r.id}`)}
         columns={[
           { key: "name", header: "Name" },
-          { key: "room", header: "Room", render: (r) => roomMap[r.room_id] ?? "—" },
-          { key: "location", header: "Location", render: (r) => [r.row, r.column].filter(Boolean).join("-") || "—" },
+          { key: "corridor", header: "Corridor", render: (r) => corridorMap[r.corridor_id]?.name ?? "—" },
+          { key: "room", header: "Room", render: (r) => {
+            const corridor = corridorMap[r.corridor_id];
+            return corridor ? roomMap[corridor.room_id] ?? "—" : "—";
+          }},
+          { key: "location", header: "Row/Col", render: (r) => [r.row, r.column].filter(Boolean).join("-") || "—" },
           { key: "total_u", header: "U Size" },
           { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
           { key: "power", header: <span className="flex items-center gap-1"><Zap size={13} />Power</span> as unknown as string,
@@ -138,8 +156,10 @@ export default function Racks() {
             key: "actions", header: "",
             render: (r) => (
               <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => openEdit(r)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600"><Pencil size={14} /></button>
-                <button onClick={() => setDeleteTarget(r)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+                <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEdit(r); }}
+                  className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600"><Pencil size={14} /></button>
+                <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(r); }}
+                  className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
               </div>
             ),
           },
@@ -151,10 +171,14 @@ export default function Racks() {
         <div className="space-y-3">
           {error && <p className="text-sm text-red-500">{error}</p>}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Room" required>
-              <Select value={form.room_id} onChange={set("room_id")}>
+            <FormField label="Corridor" required>
+              <Select value={form.corridor_id} onChange={set("corridor_id")}>
                 <option value="">Select…</option>
-                {roomList.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                {corridorList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({roomMap[c.room_id] ?? "?"})
+                  </option>
+                ))}
               </Select>
             </FormField>
             <FormField label="Name" required><Input value={form.name} onChange={set("name")} /></FormField>

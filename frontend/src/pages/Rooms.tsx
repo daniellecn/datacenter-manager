@@ -103,7 +103,7 @@ export default function Rooms() {
         loading={isLoading}
         data={data?.items ?? []}
         rowKey={(r) => r.id}
-        onRowClick={(r) => navigate(`/racks?room_id=${r.id}`)}
+        onRowClick={(r) => navigate(`/corridors?room_id=${r.id}`)}
         columns={[
           { key: "name", header: "Name" },
           { key: "datacenter", header: "Data Center", render: (r) => dcMap[r.datacenter_id] ?? "—" },

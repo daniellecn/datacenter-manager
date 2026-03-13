@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import ActiveUser
+from app.models.corridor import Corridor
 from app.models.datacenter import DataCenter
 from app.models.device import Device
 from app.models.enums import DeviceStatus, DeviceType, LinkStatus, RackStatus
@@ -119,11 +120,18 @@ class FloorRack(BaseModel):
     status: str
 
 
+class FloorCorridor(BaseModel):
+    corridor_id: uuid.UUID
+    name: str
+    position: Optional[int]
+    racks: list[FloorRack]
+
+
 class FloorRoom(BaseModel):
     room_id: uuid.UUID
     name: str
     floor: Optional[int]
-    racks: list[FloorRack]
+    corridors: list[FloorCorridor]
 
 
 class DatacenterFloorPlan(BaseModel):
@@ -432,61 +440,88 @@ async def topology_datacenter(
 
     floor_rooms: list[FloorRoom] = []
     for room in rooms:
-        # Load racks for this room
-        racks = list(
+        # Load corridors for this room
+        corridors_in_room = list(
             (
                 await db.execute(
-                    select(Rack)
-                    .where(
-                        Rack.room_id == room.id,
-                        Rack.status != RackStatus.decommissioned,
-                    )
-                    .order_by(Rack.row.nulls_last(), Rack.column.nulls_last())
+                    select(Corridor)
+                    .where(Corridor.room_id == room.id)
+                    .order_by(Corridor.position.nulls_last(), Corridor.name)
                 )
             )
             .scalars()
             .all()
         )
 
-        floor_racks: list[FloorRack] = []
-        for rack in racks:
-            # Per-rack device summary
-            devices = list(
+        floor_corridors: list[FloorCorridor] = []
+        for corridor in corridors_in_room:
+            racks = list(
                 (
                     await db.execute(
-                        select(Device).where(
-                            Device.rack_id == rack.id,
-                            Device.status != DeviceStatus.inactive,
+                        select(Rack)
+                        .where(
+                            Rack.corridor_id == corridor.id,
+                            Rack.status != RackStatus.decommissioned,
                         )
+                        .order_by(Rack.row.nulls_last(), Rack.column.nulls_last())
                     )
                 )
                 .scalars()
                 .all()
             )
-            used_u = sum(
-                d.rack_unit_size or 1
-                for d in devices
-                if d.rack_unit_start is not None
-            )
-            power_actual = sum(d.power_actual_w or 0 for d in devices)
 
-            floor_racks.append(
-                FloorRack(
-                    rack_id=rack.id,
-                    name=rack.name,
-                    row=rack.row,
-                    column=rack.column,
-                    total_u=rack.total_u,
-                    used_u=used_u,
-                    device_count=len(devices),
-                    max_power_w=rack.max_power_w,
-                    power_actual_w=power_actual,
-                    status=rack.status,
+            floor_racks: list[FloorRack] = []
+            for rack in racks:
+                devices = list(
+                    (
+                        await db.execute(
+                            select(Device).where(
+                                Device.rack_id == rack.id,
+                                Device.status != DeviceStatus.inactive,
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                used_u = sum(
+                    d.rack_unit_size or 1
+                    for d in devices
+                    if d.rack_unit_start is not None
+                )
+                power_actual = sum(d.power_actual_w or 0 for d in devices)
+
+                floor_racks.append(
+                    FloorRack(
+                        rack_id=rack.id,
+                        name=rack.name,
+                        row=rack.row,
+                        column=rack.column,
+                        total_u=rack.total_u,
+                        used_u=used_u,
+                        device_count=len(devices),
+                        max_power_w=rack.max_power_w,
+                        power_actual_w=power_actual,
+                        status=rack.status,
+                    )
+                )
+
+            floor_corridors.append(
+                FloorCorridor(
+                    corridor_id=corridor.id,
+                    name=corridor.name,
+                    position=corridor.position,
+                    racks=floor_racks,
                 )
             )
 
         floor_rooms.append(
-            FloorRoom(room_id=room.id, name=room.name, floor=room.floor, racks=floor_racks)
+            FloorRoom(
+                room_id=room.id,
+                name=room.name,
+                floor=room.floor,
+                corridors=floor_corridors,
+            )
         )
 
     return DatacenterFloorPlan(
@@ -503,7 +538,6 @@ async def topology_datacenter(
 class _FPRack(BaseModel):
     id: str
     name: str
-    position_in_room: Optional[int]
     total_units: int
     used_units: int
     power_max_w: Optional[int]
@@ -512,11 +546,18 @@ class _FPRack(BaseModel):
     device_count: int
 
 
+class _FPCorridor(BaseModel):
+    id: str
+    name: str
+    position: Optional[int]
+    racks: list[_FPRack]
+
+
 class _FPRoom(BaseModel):
     id: str
     name: str
     notes: Optional[str]
-    racks: list[_FPRack]
+    corridors: list[_FPCorridor]
 
 
 class _FPResponse(BaseModel):
@@ -553,54 +594,84 @@ async def topology_floor_plan(
 
     fp_rooms: list[_FPRoom] = []
     for room in rooms:
-        racks = list(
+        corridors_q = list(
             (
                 await db.execute(
-                    select(Rack)
-                    .where(Rack.room_id == room.id, Rack.status != RackStatus.decommissioned)
-                    .order_by(Rack.row.nulls_last(), Rack.column.nulls_last())
+                    select(Corridor)
+                    .where(Corridor.room_id == room.id)
+                    .order_by(Corridor.position.nulls_last(), Corridor.name)
                 )
             )
             .scalars()
             .all()
         )
 
-        fp_racks: list[_FPRack] = []
-        for rack in racks:
-            devices = list(
+        fp_corridors: list[_FPCorridor] = []
+        for corridor in corridors_q:
+            racks = list(
                 (
                     await db.execute(
-                        select(Device).where(
-                            Device.rack_id == rack.id,
-                            Device.status != DeviceStatus.inactive,
+                        select(Rack)
+                        .where(
+                            Rack.corridor_id == corridor.id,
+                            Rack.status != RackStatus.decommissioned,
                         )
+                        .order_by(Rack.row.nulls_last(), Rack.column.nulls_last())
                     )
                 )
                 .scalars()
                 .all()
             )
-            used_u = sum(d.rack_unit_size or 1 for d in devices if d.rack_unit_start is not None)
-            power_actual = sum(d.power_actual_w or 0 for d in devices)
-            pct: Optional[float] = None
-            if rack.max_power_w:
-                pct = round(power_actual / rack.max_power_w * 100, 1)
 
-            fp_racks.append(
-                _FPRack(
-                    id=str(rack.id),
-                    name=rack.name,
-                    position_in_room=None,
-                    total_units=rack.total_u,
-                    used_units=used_u,
-                    power_max_w=rack.max_power_w,
-                    power_actual_w=power_actual,
-                    power_utilization_pct=pct,
-                    device_count=len(devices),
+            fp_racks: list[_FPRack] = []
+            for rack in racks:
+                devices = list(
+                    (
+                        await db.execute(
+                            select(Device).where(
+                                Device.rack_id == rack.id,
+                                Device.status != DeviceStatus.inactive,
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                used_u = sum(d.rack_unit_size or 1 for d in devices if d.rack_unit_start is not None)
+                power_actual = sum(d.power_actual_w or 0 for d in devices)
+                pct: Optional[float] = None
+                if rack.max_power_w:
+                    pct = round(power_actual / rack.max_power_w * 100, 1)
+
+                fp_racks.append(
+                    _FPRack(
+                        id=str(rack.id),
+                        name=rack.name,
+                        total_units=rack.total_u,
+                        used_units=used_u,
+                        power_max_w=rack.max_power_w,
+                        power_actual_w=power_actual,
+                        power_utilization_pct=pct,
+                        device_count=len(devices),
+                    )
+                )
+
+            fp_corridors.append(
+                _FPCorridor(
+                    id=str(corridor.id),
+                    name=corridor.name,
+                    position=corridor.position,
+                    racks=fp_racks,
                 )
             )
 
         fp_rooms.append(
-            _FPRoom(id=str(room.id), name=room.name, notes=room.notes, racks=fp_racks)
+            _FPRoom(
+                id=str(room.id),
+                name=room.name,
+                notes=room.notes,
+                corridors=fp_corridors,
+            )
         )
 
     return _FPResponse(id=str(dc.id), name=dc.name, rooms=fp_rooms)

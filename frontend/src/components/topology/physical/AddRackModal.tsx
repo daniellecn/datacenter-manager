@@ -4,12 +4,12 @@ import { useCreateRack } from '@/api/racks';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface Props {
-  roomId: string;
-  roomName: string;
+  corridorId: string;
+  corridorName: string;
   onClose: () => void;
 }
 
-export function AddRackModal({ roomId, roomName, onClose }: Props) {
+export function AddRackModal({ corridorId, corridorName, onClose }: Props) {
   const [name, setName] = useState('');
   const [totalU, setTotalU] = useState(42);
   const [row, setRow] = useState('');
@@ -21,7 +21,7 @@ export function AddRackModal({ roomId, roomName, onClose }: Props) {
     e.preventDefault();
     try {
       await mutateAsync({
-        room_id: roomId,
+        corridor_id: corridorId,
         name,
         total_u: totalU,
         row: row || null,
@@ -39,7 +39,7 @@ export function AddRackModal({ roomId, roomName, onClose }: Props) {
       <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-            Add Rack — {roomName}
+            Add Rack — {corridorName}
           </h2>
           <button type="button" onClick={onClose}>
             <X className="w-4 h-4 text-slate-400 hover:text-slate-600" />

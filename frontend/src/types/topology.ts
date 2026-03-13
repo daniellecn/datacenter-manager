@@ -87,7 +87,6 @@ export interface NetworkTopologyResponse {
 export interface FloorPlanRack {
   id: string;
   name: string;
-  position_in_room: number | null;
   total_units: number;
   used_units: number;
   power_max_w: number | null;
@@ -96,11 +95,18 @@ export interface FloorPlanRack {
   device_count: number;
 }
 
+export interface FloorPlanCorridor {
+  id: string;
+  name: string;
+  position: number | null;
+  racks: FloorPlanRack[];
+}
+
 export interface FloorPlanRoom {
   id: string;
   name: string;
   notes: string | null;
-  racks: FloorPlanRack[];
+  corridors: FloorPlanCorridor[];
 }
 
 export interface FloorPlanResponse {

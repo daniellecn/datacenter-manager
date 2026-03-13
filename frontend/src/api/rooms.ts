@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "./index";
-import type { Page, RoomRead } from "@/types";
+import type { CorridorRead, Page, RoomRead } from "@/types";
 
 const KEY = "rooms";
 
@@ -40,10 +40,23 @@ export function useUpdateRoom(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const { data } = await api.patch(`/rooms/${id}`, body);
+      const { data } = await api.put(`/rooms/${id}`, body);
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+export function useRoomCorridors(roomId: string) {
+  return useQuery<Page<CorridorRead>>({
+    queryKey: ["rooms", roomId, "corridors"],
+    queryFn: async () => {
+      const { data } = await api.get(`/rooms/${roomId}/corridors`, {
+        params: { page: 1, size: 200 },
+      });
+      return data;
+    },
+    enabled: !!roomId,
   });
 }
 

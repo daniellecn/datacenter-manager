@@ -61,9 +61,19 @@ export interface RoomRead {
   updated_at: string;
 }
 
-export interface RackRead {
+export interface CorridorRead {
   id: string;
   room_id: string;
+  name: string;
+  position: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RackRead {
+  id: string;
+  corridor_id: string;
   name: string;
   row: string | null;
   column: string | null;
@@ -404,13 +414,38 @@ export interface AuditLogRead {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export interface DashboardSummary {
-  total_datacenters: number;
-  total_rooms: number;
-  total_racks: number;
-  total_devices: number;
-  total_vms: number;
-  total_active_alerts: number;
-  devices_by_status: Record<string, number>;
+  datacenters: number;
+  rooms: number;
+  racks: number;
+  devices_active: number;
+  devices_total: number;
+  devices_by_type: {
+    server: number;
+    switch: number;
+    router: number;
+    firewall: number;
+    storage: number;
+    pdu: number;
+    patch_panel: number;
+    blade_chassis: number;
+    blade: number;
+    other: number;
+  };
+  vms_total: number;
+  vms_running: number;
+  virt_hosts: number;
+  alerts: {
+    critical: number;
+    warning: number;
+    info: number;
+    total: number;
+  };
+  integrations: {
+    ok: number;
+    error: number;
+    warning: number;
+    disabled: number;
+  };
 }
 
 export interface PowerReading {

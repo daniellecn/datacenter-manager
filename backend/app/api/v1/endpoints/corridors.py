@@ -1,12 +1,12 @@
 """
-Physical layer — Rooms
+Physical layer — Corridors
 
-GET    /rooms                  paginated list (filter ?datacenter_id=)
-POST   /rooms                  create
-GET    /rooms/{id}             single
-PUT    /rooms/{id}             update
-DELETE /rooms/{id}             delete
-GET    /rooms/{id}/corridors   corridors in room (paginated)
+GET    /corridors                    paginated list (filter ?room_id=)
+POST   /corridors                    create
+GET    /corridors/{id}               single
+PUT    /corridors/{id}               update
+DELETE /corridors/{id}               delete (409 if racks exist)
+GET    /corridors/{id}/racks         racks in corridor (paginated)
 """
 import uuid
 from datetime import date, datetime
@@ -14,20 +14,21 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.core.pagination import Page, PaginationDep
 from app.core.security import ActiveUser, OperatorUser
 from app.crud.audit_log import crud_audit_log
 from app.crud.corridor import crud_corridor
-from app.crud.datacenter import crud_datacenter
+from app.crud.rack import crud_rack
 from app.crud.room import crud_room
 from app.models.enums import AuditAction
-from app.schemas.corridor import CorridorRead
-from app.schemas.room import RoomCreate, RoomRead, RoomUpdate
+from app.models.rack import Rack
+from app.schemas.corridor import CorridorCreate, CorridorRead, CorridorUpdate
+from app.schemas.rack import RackRead
 
 router = APIRouter()
 
@@ -54,18 +55,18 @@ def _to_dict(obj: Any) -> dict[str, Any]:
 
 # ─── List ─────────────────────────────────────────────────────────────────────
 
-@router.get("", response_model=Page[RoomRead])
-async def list_rooms(
+@router.get("", response_model=Page[CorridorRead])
+async def list_corridors(
     _current_user: ActiveUser,
     pagination: PaginationDep,
-    datacenter_id: uuid.UUID | None = Query(None),
+    room_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-) -> Page[RoomRead]:
-    from app.models.room import Room  # noqa: PLC0415
+) -> Page[CorridorRead]:
+    from app.models.corridor import Corridor  # noqa: PLC0415
     filters = []
-    if datacenter_id:
-        filters.append(Room.datacenter_id == datacenter_id)
-    items, total = await crud_room.get_multi(
+    if room_id:
+        filters.append(Corridor.room_id == room_id)
+    items, total = await crud_corridor.get_multi(
         db,
         skip=pagination.offset,
         limit=pagination.size,
@@ -76,19 +77,19 @@ async def list_rooms(
 
 # ─── Create ───────────────────────────────────────────────────────────────────
 
-@router.post("", response_model=RoomRead, status_code=201)
-async def create_room(
-    body: RoomCreate,
+@router.post("", response_model=CorridorRead, status_code=201)
+async def create_corridor(
+    body: CorridorCreate,
     current_user: OperatorUser,
     db: AsyncSession = Depends(get_db),
-) -> RoomRead:
-    dc = await crud_datacenter.get(db, body.datacenter_id)
-    if not dc:
-        raise NotFoundError("DataCenter", str(body.datacenter_id))
-    obj = await crud_room.create(db, obj_in=body)
+) -> CorridorRead:
+    room = await crud_room.get(db, body.room_id)
+    if not room:
+        raise NotFoundError("Room", str(body.room_id))
+    obj = await crud_corridor.create(db, obj_in=body)
     await crud_audit_log.create(
         db,
-        entity_type="room",
+        entity_type="corridor",
         entity_id=str(obj.id),
         action=AuditAction.create,
         user_id=current_user.id,
@@ -99,35 +100,35 @@ async def create_room(
 
 # ─── Read ─────────────────────────────────────────────────────────────────────
 
-@router.get("/{room_id}", response_model=RoomRead)
-async def get_room(
-    room_id: uuid.UUID,
+@router.get("/{corridor_id}", response_model=CorridorRead)
+async def get_corridor(
+    corridor_id: uuid.UUID,
     _current_user: ActiveUser,
     db: AsyncSession = Depends(get_db),
-) -> RoomRead:
-    obj = await crud_room.get(db, room_id)
+) -> CorridorRead:
+    obj = await crud_corridor.get(db, corridor_id)
     if not obj:
-        raise NotFoundError("Room", str(room_id))
+        raise NotFoundError("Corridor", str(corridor_id))
     return obj
 
 
 # ─── Update ───────────────────────────────────────────────────────────────────
 
-@router.put("/{room_id}", response_model=RoomRead)
-async def update_room(
-    room_id: uuid.UUID,
-    body: RoomUpdate,
+@router.put("/{corridor_id}", response_model=CorridorRead)
+async def update_corridor(
+    corridor_id: uuid.UUID,
+    body: CorridorUpdate,
     current_user: OperatorUser,
     db: AsyncSession = Depends(get_db),
-) -> RoomRead:
-    obj = await crud_room.get(db, room_id)
+) -> CorridorRead:
+    obj = await crud_corridor.get(db, corridor_id)
     if not obj:
-        raise NotFoundError("Room", str(room_id))
+        raise NotFoundError("Corridor", str(corridor_id))
     before = _to_dict(obj)
-    obj = await crud_room.update(db, db_obj=obj, obj_in=body)
+    obj = await crud_corridor.update(db, db_obj=obj, obj_in=body)
     await crud_audit_log.create(
         db,
-        entity_type="room",
+        entity_type="corridor",
         entity_id=str(obj.id),
         action=AuditAction.update,
         user_id=current_user.id,
@@ -138,40 +139,50 @@ async def update_room(
 
 # ─── Delete ───────────────────────────────────────────────────────────────────
 
-@router.delete("/{room_id}", status_code=204)
-async def delete_room(
-    room_id: uuid.UUID,
+@router.delete("/{corridor_id}", status_code=204)
+async def delete_corridor(
+    corridor_id: uuid.UUID,
     current_user: OperatorUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    obj = await crud_room.get(db, room_id)
+    obj = await crud_corridor.get(db, corridor_id)
     if not obj:
-        raise NotFoundError("Room", str(room_id))
+        raise NotFoundError("Corridor", str(corridor_id))
+
+    # Refuse if racks exist in this corridor
+    rack_count = (
+        await db.execute(
+            select(Rack).where(Rack.corridor_id == corridor_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if rack_count is not None:
+        raise ConflictError("Cannot delete corridor with existing racks.")
+
     before = _to_dict(obj)
-    await crud_room.delete(db, id=room_id)
+    await crud_corridor.delete(db, id=corridor_id)
     await crud_audit_log.create(
         db,
-        entity_type="room",
-        entity_id=str(room_id),
+        entity_type="corridor",
+        entity_id=str(corridor_id),
         action=AuditAction.delete,
         user_id=current_user.id,
         diff={"before": before, "after": None},
     )
 
 
-# ─── Nested: corridors ────────────────────────────────────────────────────────
+# ─── Nested: racks ────────────────────────────────────────────────────────────
 
-@router.get("/{room_id}/corridors", response_model=Page[CorridorRead])
-async def list_room_corridors(
-    room_id: uuid.UUID,
+@router.get("/{corridor_id}/racks", response_model=Page[RackRead])
+async def list_corridor_racks(
+    corridor_id: uuid.UUID,
     _current_user: ActiveUser,
     pagination: PaginationDep,
     db: AsyncSession = Depends(get_db),
-) -> Page[CorridorRead]:
-    obj = await crud_room.get(db, room_id)
+) -> Page[RackRead]:
+    obj = await crud_corridor.get(db, corridor_id)
     if not obj:
-        raise NotFoundError("Room", str(room_id))
-    items, total = await crud_corridor.get_by_room(
-        db, room_id, skip=pagination.offset, limit=pagination.size
+        raise NotFoundError("Corridor", str(corridor_id))
+    items, total = await crud_rack.get_by_corridor(
+        db, corridor_id, skip=pagination.offset, limit=pagination.size
     )
     return Page.create(items, total, pagination)

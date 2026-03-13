@@ -4,7 +4,7 @@ import type { DeviceRead, Page, RackPowerSummary, RackRead } from "@/types";
 
 const KEY = "racks";
 
-export function useRacks(params?: { room_id?: string; page?: number; size?: number }) {
+export function useRacks(params?: { corridor_id?: string; room_id?: string; page?: number; size?: number }) {
   return useQuery<Page<RackRead>>({
     queryKey: [KEY, params],
     queryFn: async () => {
@@ -62,7 +62,7 @@ export function useUpdateRack(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const { data } = await api.patch(`/racks/${id}`, body);
+      const { data } = await api.put(`/racks/${id}`, body);
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),

@@ -10,6 +10,7 @@ const Login = lazy(() => import("@/pages/Login"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const DataCenters = lazy(() => import("@/pages/DataCenters"));
 const Rooms = lazy(() => import("@/pages/Rooms"));
+const Corridors = lazy(() => import("@/pages/Corridors"));
 const Racks = lazy(() => import("@/pages/Racks"));
 const Devices = lazy(() => import("@/pages/Devices"));
 const DeviceDetail = lazy(() => import("@/pages/DeviceDetail"));
@@ -27,6 +28,7 @@ const UserManagement = lazy(() => import("@/pages/UserManagement"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const ChangePassword = lazy(() => import("@/pages/ChangePassword"));
 const Topology = lazy(() => import("@/pages/Topology"));
+const TreeView = lazy(() => import("@/pages/TreeView"));
 
 function PageLoader() {
   return (
@@ -94,6 +96,7 @@ export default function App() {
               {/* Physical */}
               <Route path="/datacenters" element={<DataCenters />} />
               <Route path="/rooms" element={<Rooms />} />
+              <Route path="/corridors" element={<Corridors />} />
               <Route path="/racks" element={<Racks />} />
               <Route path="/devices" element={<Devices />} />
               <Route path="/devices/:id" element={<DeviceDetail />} />
@@ -110,6 +113,7 @@ export default function App() {
 
               {/* Topology */}
               <Route path="/topology" element={<Topology />} />
+              <Route path="/tree" element={<TreeView />} />
 
               {/* Management */}
               <Route path="/integrations" element={<Integrations />} />

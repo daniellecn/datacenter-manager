@@ -12,7 +12,7 @@ from app.models.mixins import UUIDPrimaryKey, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.datacenter import DataCenter
-    from app.models.rack import Rack
+    from app.models.corridor import Corridor
 
 
 class Room(UUIDPrimaryKey, TimestampMixin, Base):
@@ -37,7 +37,8 @@ class Room(UUIDPrimaryKey, TimestampMixin, Base):
 
     # Relationships
     datacenter: Mapped["DataCenter"] = relationship(back_populates="rooms")
-    racks: Mapped[list["Rack"]] = relationship(
+    corridors: Mapped[list["Corridor"]] = relationship(
         back_populates="room",
         cascade="all, delete-orphan",
+        order_by="Corridor.position.nulls_last(), Corridor.name",
     )

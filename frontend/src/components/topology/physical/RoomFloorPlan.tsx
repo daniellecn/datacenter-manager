@@ -2,15 +2,21 @@
  * RoomFloorPlan — Level 1 of the hierarchical physical view.
  *
  * Renders the datacenter floor plan as a React Flow canvas.
- * - Room group nodes (non-draggable) act as visual containers.
- * - Rack tile nodes (draggable within their room) show power utilization color.
+ * - Room group nodes act as visual containers.
+ * - Corridor headers are rendered as HTML divs inside the room node.
+ * - Rack tile nodes show power utilization color.
  * - Clicking a rack tile drills into the rack level.
- * - Each room has a "+" Add Rack button in the header.
- *
- * Layout is computed manually (no ELK) using a simple grid algorithm.
+ * - Each corridor has a "+ Add Rack" button in its header.
  */
 
-import { memo, useCallback, useState, useMemo } from 'react';
+import {
+  memo,
+  useCallback,
+  useState,
+  useMemo,
+  createContext,
+  useContext,
+} from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -25,7 +31,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Plus, Loader2, AlertCircle } from 'lucide-react';
 import { useFloorPlan } from '@/api/topology';
-import type { FloorPlanRack, FloorPlanRoom } from '@/types/topology';
+import type { FloorPlanCorridor, FloorPlanRack, FloorPlanRoom } from '@/types/topology';
 import { AddRackModal } from './AddRackModal';
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
@@ -37,25 +43,70 @@ const RACKS_PER_ROW = 4;
 const ROOM_PADDING = 16;
 const ROOM_HEADER_H = 44;
 const ROOM_GAP = 32;
+const CORRIDOR_HEADER_H = 30;
+const CORRIDOR_GAP = 10;
 
-function computeRoomSize(racks: FloorPlanRack[]) {
-  const cols = Math.min(Math.max(racks.length, 1), RACKS_PER_ROW);
-  const rows = Math.max(Math.ceil(racks.length / RACKS_PER_ROW), 1);
-  return {
-    w: ROOM_PADDING * 2 + cols * RACK_W + (cols - 1) * RACK_GAP,
-    h: ROOM_HEADER_H + ROOM_PADDING + rows * RACK_H + (rows - 1) * RACK_GAP + ROOM_PADDING,
-  };
+interface CorridorLayout {
+  corridor: FloorPlanCorridor;
+  headerY: number;     // top of corridor header within room node
+  racksStartY: number; // top of first rack row
+}
+
+function computeRoomLayout(corridors: FloorPlanCorridor[]): {
+  width: number;
+  height: number;
+  corridorLayouts: CorridorLayout[];
+} {
+  let y = ROOM_HEADER_H + ROOM_PADDING;
+  const corridorLayouts: CorridorLayout[] = [];
+
+  for (const corridor of corridors) {
+    const count = corridor.racks.length;
+    const cols = Math.min(Math.max(count, 1), RACKS_PER_ROW);
+    const rows = Math.max(Math.ceil(count / RACKS_PER_ROW), 1);
+    corridorLayouts.push({
+      corridor,
+      headerY: y,
+      racksStartY: y + CORRIDOR_HEADER_H,
+    });
+    y += CORRIDOR_HEADER_H + rows * RACK_H + (rows - 1) * RACK_GAP + CORRIDOR_GAP;
+    void cols; // used only for type-checking
+  }
+
+  // Room width: widest corridor's rack row
+  const maxCols = corridors.reduce(
+    (acc, c) => Math.max(acc, Math.min(Math.max(c.racks.length, 1), RACKS_PER_ROW)),
+    1,
+  );
+  const width = ROOM_PADDING * 2 + maxCols * RACK_W + (maxCols - 1) * RACK_GAP;
+  const height = y + ROOM_PADDING;
+
+  return { width, height, corridorLayouts };
 }
 
 // ─── Power utilization color helpers ─────────────────────────────────────────
 
 function powerColor(pct: number | null | undefined): string {
-  if (pct == null) return '#64748b'; // slate-500
-  if (pct >= 90) return '#ef4444';   // red-500
-  if (pct >= 75) return '#f97316';   // orange-500
-  if (pct >= 50) return '#eab308';   // yellow-500
-  return '#22c55e';                   // green-500
+  if (pct == null) return '#64748b';
+  if (pct >= 90) return '#ef4444';
+  if (pct >= 75) return '#f97316';
+  if (pct >= 50) return '#eab308';
+  return '#22c55e';
 }
+
+// ─── Context for React Flow node callbacks ───────────────────────────────────
+
+interface FloorPlanCallbacks {
+  onAddRack: (room: FloorPlanRoom, corridor: FloorPlanCorridor) => void;
+  onRackClick: (room: FloorPlanRoom, rack: FloorPlanRack) => void;
+  onRoomClick: ((room: FloorPlanRoom) => void) | null;
+}
+
+const FloorPlanCallbacksCtx = createContext<FloorPlanCallbacks>({
+  onAddRack: () => {},
+  onRackClick: () => {},
+  onRoomClick: null,
+});
 
 // ─── Node data types ──────────────────────────────────────────────────────────
 
@@ -63,22 +114,23 @@ interface RoomGroupData extends Record<string, unknown> {
   room: FloorPlanRoom;
   width: number;
   height: number;
-  onAddRack: (room: FloorPlanRoom) => void;
+  corridorLayouts: CorridorLayout[];
 }
 
 interface RackTileData extends Record<string, unknown> {
   rack: FloorPlanRack;
   room: FloorPlanRoom;
-  onRackClick: (room: FloorPlanRoom, rack: FloorPlanRack) => void;
 }
 
 // ─── Room group node ──────────────────────────────────────────────────────────
 
 const RoomGroupNode = memo(function RoomGroupNode({ data }: NodeProps<Node<RoomGroupData>>) {
-  const { room, width, height, onAddRack } = data;
+  const { room, width, height, corridorLayouts } = data;
+  const { onAddRack } = useContext(FloorPlanCallbacksCtx);
+
   return (
     <div
-      className="absolute rounded-xl border-2 border-dashed border-slate-500 dark:border-slate-600 bg-slate-200/60 dark:bg-slate-800/50"
+      className="rounded-xl border-2 border-dashed border-slate-500 dark:border-slate-600 bg-slate-200/60 dark:bg-slate-800/50 relative"
       style={{ width, height }}
     >
       {/* Room header */}
@@ -88,18 +140,34 @@ const RoomGroupNode = memo(function RoomGroupNode({ data }: NodeProps<Node<RoomG
             {room.name}
           </p>
           <p className="text-[10px] text-slate-500 dark:text-slate-400">
-            {room.racks.length} rack{room.racks.length !== 1 ? 's' : ''}
+            {room.corridors.length} corridor{room.corridors.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onAddRack(room); }}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-sky-600 hover:bg-sky-700 text-white rounded-md transition-colors shrink-0"
-          title="Add Rack"
-        >
-          <Plus className="w-3 h-3" />
-          Add Rack
-        </button>
       </div>
+
+      {/* Corridor header strips — visual only, rendered as divs */}
+      {corridorLayouts.map((layout) => (
+        <div
+          key={layout.corridor.id}
+          className="absolute left-0 right-0 flex items-center justify-between px-3 bg-slate-300/70 dark:bg-slate-700/60 border-b border-slate-400/50 dark:border-slate-600/50"
+          style={{ top: layout.headerY, height: CORRIDOR_HEADER_H }}
+        >
+          <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 truncate">
+            {layout.corridor.name}
+          </span>
+          <button
+            type="button"
+            className="nodrag nopan flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium bg-sky-600 hover:bg-sky-700 text-white rounded transition-colors shrink-0"
+            title="Add Rack"
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onAddRack(room, layout.corridor); }}
+          >
+            <Plus className="w-2.5 h-2.5" />
+            Rack
+          </button>
+        </div>
+      ))}
     </div>
   );
 });
@@ -107,15 +175,19 @@ const RoomGroupNode = memo(function RoomGroupNode({ data }: NodeProps<Node<RoomG
 // ─── Rack tile node ───────────────────────────────────────────────────────────
 
 const RackTileNode = memo(function RackTileNode({ data, selected }: NodeProps<Node<RackTileData>>) {
-  const { rack, room, onRackClick } = data;
+  const { rack, room } = data;
+  const { onRackClick } = useContext(FloorPlanCallbacksCtx);
   const pct = rack.power_utilization_pct;
   const uPct = rack.total_units > 0 ? Math.round((rack.used_units / rack.total_units) * 100) : 0;
   const accentColor = powerColor(pct);
 
   return (
     <div
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => { e.stopPropagation(); onRackClick(room, rack); }}
       className={[
+        'nodrag nopan',
         'flex flex-col justify-between rounded-lg border-2 cursor-pointer select-none p-2',
         'bg-white dark:bg-slate-800 shadow-md transition-all hover:scale-[1.03] hover:shadow-lg',
         selected ? 'border-sky-500 ring-2 ring-sky-300' : 'border-slate-300 dark:border-slate-600',
@@ -123,7 +195,6 @@ const RackTileNode = memo(function RackTileNode({ data, selected }: NodeProps<No
       style={{ width: RACK_W, height: RACK_H }}
       title={`${rack.name} · ${rack.used_units}/${rack.total_units}U used${pct != null ? ` · ${Math.round(pct)}% power` : ''}`}
     >
-      {/* Top: colored power strip + name */}
       <div className="flex items-start gap-1.5">
         <div
           className="w-2 self-stretch rounded-sm shrink-0"
@@ -139,7 +210,6 @@ const RackTileNode = memo(function RackTileNode({ data, selected }: NodeProps<No
         </div>
       </div>
 
-      {/* Bottom: U utilization bar */}
       <div className="space-y-0.5">
         <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
           <span>{rack.used_units}U / {rack.total_units}U</span>
@@ -172,11 +242,16 @@ interface Props {
 
 function RoomFloorPlanInner({ datacenterId, onRackClick }: Props) {
   const { data: floorPlan, isLoading, isError } = useFloorPlan(datacenterId);
-  const [addRackRoom, setAddRackRoom] = useState<FloorPlanRoom | null>(null);
+  const [addRackTarget, setAddRackTarget] = useState<{ room: FloorPlanRoom; corridor: FloorPlanCorridor } | null>(null);
 
-  const handleAddRack = useCallback((room: FloorPlanRoom) => {
-    setAddRackRoom(room);
+  const handleAddRack = useCallback((room: FloorPlanRoom, corridor: FloorPlanCorridor) => {
+    setAddRackTarget({ room, corridor });
   }, []);
+
+  const callbacks = useMemo<FloorPlanCallbacks>(
+    () => ({ onAddRack: handleAddRack, onRackClick }),
+    [handleAddRack, onRackClick],
+  );
 
   const nodes = useMemo<Node[]>(() => {
     if (!floorPlan) return [];
@@ -184,42 +259,43 @@ function RoomFloorPlanInner({ datacenterId, onRackClick }: Props) {
     let xOffset = 0;
 
     for (const room of floorPlan.rooms) {
-      const { w: roomW, h: roomH } = computeRoomSize(room.racks);
+      const { width: roomW, height: roomH, corridorLayouts } = computeRoomLayout(room.corridors);
 
-      // Room group node (parent)
       result.push({
         id: `room-${room.id}`,
         type: 'roomGroup',
         position: { x: xOffset, y: 0 },
-        data: { room, width: roomW, height: roomH, onAddRack: handleAddRack } as RoomGroupData,
+        data: { room, width: roomW, height: roomH, corridorLayouts } as RoomGroupData,
         draggable: false,
         selectable: false,
         style: { width: roomW, height: roomH, zIndex: 0 },
       });
 
-      // Rack tile nodes (children)
-      room.racks.forEach((rack, i) => {
-        const col = i % RACKS_PER_ROW;
-        const row = Math.floor(i / RACKS_PER_ROW);
-        result.push({
-          id: `rack-${rack.id}`,
-          type: 'rackTile',
-          parentId: `room-${room.id}`,
-          extent: 'parent',
-          position: {
-            x: ROOM_PADDING + col * (RACK_W + RACK_GAP),
-            y: ROOM_HEADER_H + ROOM_PADDING + row * (RACK_H + RACK_GAP),
-          },
-          data: { rack, room, onRackClick } as RackTileData,
-          style: { width: RACK_W, height: RACK_H, zIndex: 10 },
+      // Rack tile nodes positioned within corridors inside the room
+      for (const layout of corridorLayouts) {
+        layout.corridor.racks.forEach((rack, i) => {
+          const col = i % RACKS_PER_ROW;
+          const row = Math.floor(i / RACKS_PER_ROW);
+          result.push({
+            id: `rack-${rack.id}`,
+            type: 'rackTile',
+            parentId: `room-${room.id}`,
+            extent: 'parent',
+            position: {
+              x: ROOM_PADDING + col * (RACK_W + RACK_GAP),
+              y: layout.racksStartY + row * (RACK_H + RACK_GAP),
+            },
+            data: { rack, room } as RackTileData,
+            style: { width: RACK_W, height: RACK_H, zIndex: 10 },
+          });
         });
-      });
+      }
 
       xOffset += roomW + ROOM_GAP;
     }
 
     return result;
-  }, [floorPlan, handleAddRack, onRackClick]);
+  }, [floorPlan]);
 
   if (!datacenterId) {
     return (
@@ -256,66 +332,68 @@ function RoomFloorPlanInner({ datacenterId, onRackClick }: Props) {
   }
 
   return (
-    <div className="w-full h-full">
-      <ReactFlow
-        nodes={nodes}
-        edges={[]}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.1 }}
-        minZoom={0.2}
-        maxZoom={2.5}
-        panOnDrag
-        zoomOnScroll
-        elementsSelectable={false}
-        nodesDraggable={true}
-        nodesConnectable={false}
-        deleteKeyCode={null}
-        proOptions={{ hideAttribution: true }}
-      >
-        <MiniMap
-          nodeColor={(n) => {
-            if (n.type === 'rackTile') {
-              const pct = (n.data as RackTileData).rack.power_utilization_pct;
-              return powerColor(pct);
-            }
-            return '#334155';
-          }}
-          className="!bottom-4 !right-4"
-          zoomable
-          pannable
-        />
-        <Controls className="!bottom-4 !left-4" showInteractive={false} />
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#94a3b8" />
+    <FloorPlanCallbacksCtx.Provider value={callbacks}>
+      <div className="w-full h-full">
+        <ReactFlow
+          nodes={nodes}
+          edges={[]}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.1 }}
+          minZoom={0.2}
+          maxZoom={2.5}
+          panOnDrag
+          zoomOnScroll
+          elementsSelectable={false}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          deleteKeyCode={null}
+          proOptions={{ hideAttribution: true }}
+        >
+          <MiniMap
+            nodeColor={(n) => {
+              if (n.type === 'rackTile') {
+                const pct = (n.data as RackTileData).rack.power_utilization_pct;
+                return powerColor(pct);
+              }
+              return '#334155';
+            }}
+            className="!bottom-4 !right-4"
+            zoomable
+            pannable
+          />
+          <Controls className="!bottom-4 !left-4" showInteractive={false} />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#94a3b8" />
 
-        {/* Legend overlay */}
-        <div className="absolute top-3 right-3 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg p-2.5 shadow border border-slate-200 dark:border-slate-700">
-          <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">
-            Power Utilization
-          </p>
-          {[
-            { label: '< 50%', color: 'bg-green-500' },
-            { label: '50–75%', color: 'bg-yellow-500' },
-            { label: '75–90%', color: 'bg-orange-500' },
-            { label: '≥ 90%', color: 'bg-red-500' },
-            { label: 'N/A', color: 'bg-slate-500' },
-          ].map(({ label, color }) => (
-            <div key={label} className="flex items-center gap-1.5 text-[10px] text-slate-600 dark:text-slate-300">
-              <span className={`w-2.5 h-2.5 rounded-sm ${color} shrink-0`} />
-              {label}
-            </div>
-          ))}
-        </div>
-      </ReactFlow>
+          {/* Legend overlay */}
+          <div className="absolute top-3 right-3 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-lg p-2.5 shadow border border-slate-200 dark:border-slate-700">
+            <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">
+              Power Utilization
+            </p>
+            {[
+              { label: '< 50%', color: 'bg-green-500' },
+              { label: '50–75%', color: 'bg-yellow-500' },
+              { label: '75–90%', color: 'bg-orange-500' },
+              { label: '≥ 90%', color: 'bg-red-500' },
+              { label: 'N/A', color: 'bg-slate-500' },
+            ].map(({ label, color }) => (
+              <div key={label} className="flex items-center gap-1.5 text-[10px] text-slate-600 dark:text-slate-300">
+                <span className={`w-2.5 h-2.5 rounded-sm ${color} shrink-0`} />
+                {label}
+              </div>
+            ))}
+          </div>
+        </ReactFlow>
 
-      {addRackRoom && (
-        <AddRackModal
-          roomId={addRackRoom.id}
-          roomName={addRackRoom.name}
-          onClose={() => setAddRackRoom(null)}
-        />
-      )}
-    </div>
+        {addRackTarget && (
+          <AddRackModal
+            corridorId={addRackTarget.corridor.id}
+            corridorName={addRackTarget.corridor.name}
+            onClose={() => setAddRackTarget(null)}
+          />
+        )}
+      </div>
+    </FloorPlanCallbacksCtx.Provider>
   );
 }
 
