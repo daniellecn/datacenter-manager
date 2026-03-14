@@ -1,20 +1,17 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useCreateDevice } from '@/api/devices';
+import { useDeviceTypes } from '@/api/deviceTypes';
 import { useQueryClient } from '@tanstack/react-query';
 import type { RackElevationDevice } from '@/types/topology';
 import { ModalOverlay, FormField, inputCls } from './AddRackModal';
-
-const DEVICE_TYPES = [
-  'server', 'switch', 'router', 'firewall', 'storage',
-  'pdu', 'patch_panel', 'blade_chassis', 'generic',
-];
 
 interface Props {
   rackId: string;
   rackName: string;
   totalUnits: number;
   existingDevices: RackElevationDevice[];
+  initialUnit?: number;  // pre-fill rack_unit_start (e.g. from clicking an empty slot)
   onClose: () => void;
 }
 
@@ -38,11 +35,13 @@ function nextFreeSlot(devices: RackElevationDevice[], totalUnits: number, height
   return 1;
 }
 
-export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, onClose }: Props) {
+export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, initialUnit, onClose }: Props) {
+  const { data: deviceTypeList } = useDeviceTypes();
+  const deviceTypes = deviceTypeList ?? [];
   const [name, setName] = useState('');
   const [deviceType, setDeviceType] = useState('server');
   const [height, setHeight] = useState(1);
-  const [unitStart, setUnitStart] = useState(() => nextFreeSlot(existingDevices, totalUnits, 1));
+  const [unitStart, setUnitStart] = useState(() => initialUnit ?? nextFreeSlot(existingDevices, totalUnits, 1));
   const { mutateAsync, isPending, error } = useCreateDevice();
   const qc = useQueryClient();
 
@@ -51,6 +50,8 @@ export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, 
     setUnitStart(nextFreeSlot(existingDevices, totalUnits, h));
   }
 
+  const isPdu = deviceType === 'pdu';
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -58,8 +59,8 @@ export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, 
         rack_id: rackId,
         name,
         device_type: deviceType,
-        rack_unit_start: unitStart,
-        rack_unit_size: height,
+        rack_unit_start: isPdu ? undefined : unitStart,
+        rack_unit_size:  isPdu ? undefined : height,
         status: 'active',
       });
       qc.invalidateQueries({ queryKey: ['topology', 'rack-elevation', rackId] });
@@ -98,39 +99,47 @@ export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, 
             onChange={(e) => setDeviceType(e.target.value)}
             className={inputCls}
           >
-            {DEVICE_TYPES.map((t) => (
-              <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+            {deviceTypes.map((t) => (
+              <option key={t.name} value={t.name}>{t.label}</option>
             ))}
           </select>
         </FormField>
 
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Rack Unit Start">
-            <input
-              type="number"
-              min={1}
-              max={totalUnits}
-              value={unitStart}
-              onChange={(e) => setUnitStart(Number(e.target.value))}
-              className={inputCls}
-            />
-          </FormField>
-          <FormField label="Height (U)">
-            <input
-              type="number"
-              min={1}
-              max={totalUnits}
-              value={height}
-              onChange={(e) => handleHeightChange(Number(e.target.value))}
-              className={inputCls}
-            />
-          </FormField>
-        </div>
+        {isPdu ? (
+          <p className="text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
+            PDUs are mounted on the rack side rail and do not occupy U-slots.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Rack Unit Start">
+                <input
+                  type="number"
+                  min={1}
+                  max={totalUnits}
+                  value={unitStart}
+                  onChange={(e) => setUnitStart(Number(e.target.value))}
+                  className={inputCls}
+                />
+              </FormField>
+              <FormField label="Height (U)">
+                <input
+                  type="number"
+                  min={1}
+                  max={totalUnits}
+                  value={height}
+                  onChange={(e) => handleHeightChange(Number(e.target.value))}
+                  className={inputCls}
+                />
+              </FormField>
+            </div>
 
-        <p className="text-xs text-slate-400">
-          Rack: {rackName} · {totalUnits}U total ·{' '}
-          {totalUnits - existingDevices.reduce((s, d) => s + d.rack_unit_height, 0)} U free
-        </p>
+            <p className="text-xs text-slate-400">
+              Rack: {rackName} · {totalUnits}U total ·{' '}
+              {totalUnits - existingDevices.reduce((s, d) => s + d.rack_unit_height, 0)} U free
+            </p>
+          </>
+        )}
 
         {error && (
           <p className="text-xs text-red-600">{String((error as Error).message)}</p>
