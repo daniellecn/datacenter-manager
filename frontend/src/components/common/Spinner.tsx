@@ -20,3 +20,12 @@ export function Spinner({ className, size = "md" }: SpinnerProps) {
     </svg>
   );
 }
+
+/** Full-page centered spinner — use for page-level loading states. */
+export function PageSpinner() {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <Spinner size="lg" />
+    </div>
+  );
+}

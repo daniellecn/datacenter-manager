@@ -104,7 +104,7 @@ export default function Corridors() {
         loading={isLoading}
         data={data?.items ?? []}
         rowKey={(c) => c.id}
-        onRowClick={(c) => navigate(`/racks?corridor_id=${c.id}`)}
+        onRowClick={(c) => navigate(`/racks?corridor_id=${c.id}&room_id=${c.room_id}&datacenter_id=${roomMap[c.room_id]?.datacenter_id ?? ""}`)}
         columns={[
           { key: "name", header: "Name" },
           { key: "room", header: "Room", render: (c) => roomMap[c.room_id]?.name ?? "—" },

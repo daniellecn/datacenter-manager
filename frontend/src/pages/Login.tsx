@@ -58,8 +58,9 @@ export default function Login() {
           )}
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Username</label>
+            <label htmlFor="login-username" className="text-sm font-medium text-gray-700">Username</label>
             <input
+              id="login-username"
               type="text"
               autoComplete="username"
               required
@@ -71,8 +72,9 @@ export default function Login() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Password</label>
+            <label htmlFor="login-password" className="text-sm font-medium text-gray-700">Password</label>
             <input
+              id="login-password"
               type="password"
               autoComplete="current-password"
               required

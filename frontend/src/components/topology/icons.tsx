@@ -185,7 +185,7 @@ export function BladeIcon({ className, size = 24 }: IconProps) {
 
 // ─── Map device type to icon component ───────────────────────────────────────
 
-export const DEVICE_ICON_MAP: Record<DeviceType, ComponentType<IconProps>> = {
+export const DEVICE_ICON_MAP: Record<string, ComponentType<IconProps>> = {
   server: ServerIcon,
   switch: SwitchIcon,
   router: RouterIcon,
@@ -208,7 +208,7 @@ export function DeviceIcon({
 
 // ─── Color scheme per device type ────────────────────────────────────────────
 
-export const DEVICE_COLORS: Record<DeviceType, { bg: string; border: string; text: string }> = {
+export const DEVICE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   server:        { bg: "bg-blue-600",   border: "border-blue-700",   text: "text-blue-600"   },
   switch:        { bg: "bg-green-600",  border: "border-green-700",  text: "text-green-600"  },
   router:        { bg: "bg-purple-600", border: "border-purple-700", text: "text-purple-600" },

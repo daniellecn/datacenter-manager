@@ -31,6 +31,33 @@ export interface UserRead {
 
 // ─── Physical ─────────────────────────────────────────────────────────────────
 
+export interface DeviceTypeRead {
+  id: string;
+  name: string;
+  label: string;
+  color: string | null;
+  icon_key: string | null;
+  is_builtin: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceTypeCreate {
+  name: string;
+  label: string;
+  color?: string | null;
+  icon_key?: string | null;
+  sort_order?: number;
+}
+
+export interface DeviceTypeUpdate {
+  label?: string;
+  color?: string | null;
+  icon_key?: string | null;
+  sort_order?: number;
+}
+
 export interface DataCenterRead {
   id: string;
   name: string;
@@ -120,6 +147,9 @@ export interface DeviceServerRead {
   bios_version: string | null;
   bmc_firmware_version: string | null;
   xclarity_uuid: string | null;
+  total_blade_slots: number | null;
+  ethernet_switch_modules: number | null;
+  fc_switch_modules: number | null;
 }
 
 export interface DeviceNetworkRead {
@@ -419,18 +449,7 @@ export interface DashboardSummary {
   racks: number;
   devices_active: number;
   devices_total: number;
-  devices_by_type: {
-    server: number;
-    switch: number;
-    router: number;
-    firewall: number;
-    storage: number;
-    pdu: number;
-    patch_panel: number;
-    blade_chassis: number;
-    blade: number;
-    other: number;
-  };
+  devices_by_type: Record<string, number>;
   vms_total: number;
   vms_running: number;
   virt_hosts: number;

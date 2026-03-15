@@ -2,24 +2,24 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import OSType, VMStatus
 
 
 class VMBase(BaseModel):
     host_id: uuid.UUID
-    name: str
+    name: str = Field(min_length=1)
     platform_vm_id: Optional[str] = None
     status: VMStatus = VMStatus.stopped
     os_type: Optional[OSType] = None
     os_version: Optional[str] = None
-    vcpu_count: Optional[int] = None
-    ram_gb: Optional[int] = None
-    storage_gb: Optional[int] = None
+    vcpu_count: Optional[int] = Field(default=None, ge=1)
+    ram_gb: Optional[int] = Field(default=None, ge=1)
+    storage_gb: Optional[int] = Field(default=None, ge=0)
     tools_version: Optional[str] = None
     is_template: bool = False
-    snapshot_count: Optional[int] = None
+    snapshot_count: Optional[int] = Field(default=None, ge=0)
     platform_data: Optional[dict[str, Any]] = None
     notes: Optional[str] = None
 
@@ -30,17 +30,17 @@ class VMCreate(VMBase):
 
 class VMUpdate(BaseModel):
     host_id: Optional[uuid.UUID] = None
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1)
     platform_vm_id: Optional[str] = None
     status: Optional[VMStatus] = None
     os_type: Optional[OSType] = None
     os_version: Optional[str] = None
-    vcpu_count: Optional[int] = None
-    ram_gb: Optional[int] = None
-    storage_gb: Optional[int] = None
+    vcpu_count: Optional[int] = Field(default=None, ge=1)
+    ram_gb: Optional[int] = Field(default=None, ge=1)
+    storage_gb: Optional[int] = Field(default=None, ge=0)
     tools_version: Optional[str] = None
     is_template: Optional[bool] = None
-    snapshot_count: Optional[int] = None
+    snapshot_count: Optional[int] = Field(default=None, ge=0)
     platform_data: Optional[dict[str, Any]] = None
     notes: Optional[str] = None
 

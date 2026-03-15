@@ -22,7 +22,7 @@ from app.core.security import ActiveUser
 from app.models.corridor import Corridor
 from app.models.datacenter import DataCenter
 from app.models.device import Device
-from app.models.enums import DeviceStatus, DeviceType, LinkStatus, RackStatus
+from app.models.enums import DeviceStatus, LinkStatus, RackStatus
 from app.models.network_interface import NetworkInterface
 from app.models.network_link import NetworkLink
 from app.models.rack import Rack
@@ -142,12 +142,7 @@ class DatacenterFloorPlan(BaseModel):
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-_NETWORK_DEVICE_TYPES = {
-    DeviceType.switch,
-    DeviceType.router,
-    DeviceType.firewall,
-    DeviceType.load_balancer,
-}
+_NETWORK_DEVICE_TYPES = {"switch", "router", "firewall", "load_balancer"}
 
 # Simple grid layout: pack nodes left-to-right in rows of 8
 _COLS = 8

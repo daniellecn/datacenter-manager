@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, Zap } from "lucide-react";
 import { useRacks, useCreateRack, useUpdateRack, useDeleteRack, useRackPowerSummary } from "@/api/racks";
 import { useCorridors } from "@/api/corridors";
 import { useRooms } from "@/api/rooms";
+import { useDataCenters } from "@/api/datacenters";
 import { Table } from "@/components/common/Table";
 import { Modal } from "@/components/common/Modal";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -49,16 +50,21 @@ function PowerBar({ rackId }: { rackId: string }) {
 export default function Racks() {
   const [searchParams] = useSearchParams();
   const corridorFilter = searchParams.get("corridor_id") ?? undefined;
+  const roomIdParam = searchParams.get("room_id") ?? undefined;
+  const dcIdParam = searchParams.get("datacenter_id") ?? undefined;
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useRacks({ corridor_id: corridorFilter, page, size: 50 });
   const { data: corridorData } = useCorridors({ page: 1, size: 200 });
   const { data: roomData } = useRooms({ page: 1, size: 200 });
+  const { data: dcData } = useDataCenters(1, 200);
   const corridorList = corridorData?.items ?? [];
   const roomList = roomData?.items ?? [];
+  const dcList = dcData?.items ?? [];
   const corridorMap = Object.fromEntries(corridorList.map((c) => [c.id, c]));
   const roomMap = Object.fromEntries(roomList.map((r) => [r.id, r.name]));
+  const dcMap = Object.fromEntries(dcList.map((d) => [d.id, d.name]));
 
   const createMut = useCreateRack();
   const deleteMut = useDeleteRack();
@@ -98,6 +104,14 @@ export default function Racks() {
     setError("");
     if (!form.name.trim()) { setError("Name is required."); return; }
     if (!form.corridor_id) { setError("Corridor is required."); return; }
+    const totalU = parseInt(form.total_u);
+    if (!form.total_u || isNaN(totalU) || totalU < 1 || totalU > 100) {
+      setError("Total U must be between 1 and 100."); return;
+    }
+    const feedCount = parseInt(form.power_feed_count);
+    if (!form.power_feed_count || isNaN(feedCount) || feedCount < 1 || feedCount > 8) {
+      setError("Power feed count must be between 1 and 8."); return;
+    }
     try {
       if (editing) await updateMut.mutateAsync(toBody(form));
       else await createMut.mutateAsync(toBody(form));
@@ -112,12 +126,15 @@ export default function Racks() {
 
   const currentCorridor = corridorFilter ? corridorMap[corridorFilter] : null;
   const currentRoomName = currentCorridor ? roomMap[currentCorridor.room_id] : null;
+  const resolvedRoomId = currentCorridor?.room_id ?? roomIdParam;
+  const resolvedDcId = dcIdParam ?? undefined;
+  const dcName = resolvedDcId ? dcMap[resolvedDcId] : null;
 
   const crumbs = currentCorridor
     ? [
-        { label: "Rooms", to: "/rooms" },
-        ...(currentRoomName ? [{ label: currentRoomName, to: `/corridors?room_id=${currentCorridor.room_id}` }] : []),
-        { label: "Corridors", to: `/corridors?room_id=${currentCorridor.room_id}` },
+        { label: "Data Centers", to: "/datacenters" },
+        ...(dcName && resolvedDcId ? [{ label: dcName, to: `/rooms?datacenter_id=${resolvedDcId}` }] : []),
+        ...(currentRoomName && resolvedRoomId ? [{ label: currentRoomName, to: `/corridors?room_id=${resolvedRoomId}&datacenter_id=${resolvedDcId ?? ""}` }] : []),
         { label: currentCorridor.name },
         { label: "Racks" },
       ]
@@ -139,7 +156,7 @@ export default function Racks() {
         loading={isLoading}
         data={data?.items ?? []}
         rowKey={(r) => r.id}
-        onRowClick={(r) => navigate(`/devices?rack_id=${r.id}`)}
+        onRowClick={(r) => navigate(`/devices?rack_id=${r.id}&corridor_id=${corridorFilter ?? ""}&room_id=${resolvedRoomId ?? ""}&datacenter_id=${resolvedDcId ?? ""}`)}
         columns={[
           { key: "name", header: "Name" },
           { key: "corridor", header: "Corridor", render: (r) => corridorMap[r.corridor_id]?.name ?? "—" },
@@ -186,8 +203,16 @@ export default function Racks() {
           <div className="grid grid-cols-4 gap-3">
             <FormField label="Row"><Input value={form.row} onChange={set("row")} /></FormField>
             <FormField label="Column"><Input value={form.column} onChange={set("column")} /></FormField>
-            <FormField label="Total U"><Input type="number" value={form.total_u} onChange={set("total_u")} /></FormField>
-            <FormField label="Power Feeds"><Input type="number" value={form.power_feed_count} onChange={set("power_feed_count")} /></FormField>
+            <FormField label="Total U">
+              <Input type="number" min="1" max="100" value={form.total_u} onChange={set("total_u")} />
+              {form.total_u && (parseInt(form.total_u) < 1 || parseInt(form.total_u) > 100) &&
+                <p className="mt-1 text-xs text-red-500">Must be 1–100</p>}
+            </FormField>
+            <FormField label="Power Feeds">
+              <Input type="number" min="1" max="8" value={form.power_feed_count} onChange={set("power_feed_count")} />
+              {form.power_feed_count && (parseInt(form.power_feed_count) < 1 || parseInt(form.power_feed_count) > 8) &&
+                <p className="mt-1 text-xs text-red-500">Must be 1–8</p>}
+            </FormField>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <FormField label="Max Power (W)"><Input type="number" value={form.max_power_w} onChange={set("max_power_w")} /></FormField>

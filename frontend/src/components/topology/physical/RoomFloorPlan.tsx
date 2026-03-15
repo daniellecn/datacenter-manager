@@ -33,6 +33,7 @@ import { Plus, Loader2, AlertCircle } from 'lucide-react';
 import { useFloorPlan } from '@/api/topology';
 import type { FloorPlanCorridor, FloorPlanRack, FloorPlanRoom } from '@/types/topology';
 import { AddRackModal } from './AddRackModal';
+import { AddCorridorModal } from './AddCorridorModal';
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
@@ -97,12 +98,14 @@ function powerColor(pct: number | null | undefined): string {
 // ─── Context for React Flow node callbacks ───────────────────────────────────
 
 interface FloorPlanCallbacks {
+  onAddCorridor: (room: FloorPlanRoom) => void;
   onAddRack: (room: FloorPlanRoom, corridor: FloorPlanCorridor) => void;
   onRackClick: (room: FloorPlanRoom, rack: FloorPlanRack) => void;
   onRoomClick: ((room: FloorPlanRoom) => void) | null;
 }
 
 const FloorPlanCallbacksCtx = createContext<FloorPlanCallbacks>({
+  onAddCorridor: () => {},
   onAddRack: () => {},
   onRackClick: () => {},
   onRoomClick: null,
@@ -126,7 +129,7 @@ interface RackTileData extends Record<string, unknown> {
 
 const RoomGroupNode = memo(function RoomGroupNode({ data }: NodeProps<Node<RoomGroupData>>) {
   const { room, width, height, corridorLayouts } = data;
-  const { onAddRack } = useContext(FloorPlanCallbacksCtx);
+  const { onAddCorridor, onAddRack } = useContext(FloorPlanCallbacksCtx);
 
   return (
     <div
@@ -143,6 +146,18 @@ const RoomGroupNode = memo(function RoomGroupNode({ data }: NodeProps<Node<RoomG
             {room.corridors.length} corridor{room.corridors.length !== 1 ? 's' : ''}
           </p>
         </div>
+        <button
+          type="button"
+          className="nodrag nopan flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium bg-violet-600 hover:bg-violet-700 text-white rounded transition-colors shrink-0 ml-2"
+          style={{ pointerEvents: 'all' }}
+          title="Add Corridor"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onAddCorridor(room); }}
+        >
+          <Plus className="w-2.5 h-2.5" />
+          Corridor
+        </button>
       </div>
 
       {/* Corridor header strips — visual only, rendered as divs */}
@@ -158,6 +173,7 @@ const RoomGroupNode = memo(function RoomGroupNode({ data }: NodeProps<Node<RoomG
           <button
             type="button"
             className="nodrag nopan flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium bg-sky-600 hover:bg-sky-700 text-white rounded transition-colors shrink-0"
+            style={{ pointerEvents: 'all' }}
             title="Add Rack"
             onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -192,7 +208,7 @@ const RackTileNode = memo(function RackTileNode({ data, selected }: NodeProps<No
         'bg-white dark:bg-slate-800 shadow-md transition-all hover:scale-[1.03] hover:shadow-lg',
         selected ? 'border-sky-500 ring-2 ring-sky-300' : 'border-slate-300 dark:border-slate-600',
       ].join(' ')}
-      style={{ width: RACK_W, height: RACK_H }}
+      style={{ width: RACK_W, height: RACK_H, pointerEvents: 'all' }}
       title={`${rack.name} · ${rack.used_units}/${rack.total_units}U used${pct != null ? ` · ${Math.round(pct)}% power` : ''}`}
     >
       <div className="flex items-start gap-1.5">
@@ -242,15 +258,15 @@ interface Props {
 
 function RoomFloorPlanInner({ datacenterId, onRackClick }: Props) {
   const { data: floorPlan, isLoading, isError } = useFloorPlan(datacenterId);
+  const [addCorridorTarget, setAddCorridorTarget] = useState<FloorPlanRoom | null>(null);
   const [addRackTarget, setAddRackTarget] = useState<{ room: FloorPlanRoom; corridor: FloorPlanCorridor } | null>(null);
 
-  const handleAddRack = useCallback((room: FloorPlanRoom, corridor: FloorPlanCorridor) => {
-    setAddRackTarget({ room, corridor });
-  }, []);
+  const handleAddCorridor = useCallback((room: FloorPlanRoom) => setAddCorridorTarget(room), []);
+  const handleAddRack = useCallback((room: FloorPlanRoom, corridor: FloorPlanCorridor) => setAddRackTarget({ room, corridor }), []);
 
   const callbacks = useMemo<FloorPlanCallbacks>(
-    () => ({ onAddRack: handleAddRack, onRackClick }),
-    [handleAddRack, onRackClick],
+    () => ({ onAddCorridor: handleAddCorridor, onAddRack: handleAddRack, onRackClick, onRoomClick: null }),
+    [handleAddCorridor, handleAddRack, onRackClick],
   );
 
   const nodes = useMemo<Node[]>(() => {
@@ -273,7 +289,7 @@ function RoomFloorPlanInner({ datacenterId, onRackClick }: Props) {
 
       // Rack tile nodes positioned within corridors inside the room
       for (const layout of corridorLayouts) {
-        layout.corridor.racks.forEach((rack, i) => {
+        layout.corridor.racks.forEach((rack: FloorPlanRack, i: number) => {
           const col = i % RACKS_PER_ROW;
           const row = Math.floor(i / RACKS_PER_ROW);
           result.push({
@@ -385,6 +401,13 @@ function RoomFloorPlanInner({ datacenterId, onRackClick }: Props) {
           </div>
         </ReactFlow>
 
+        {addCorridorTarget && (
+          <AddCorridorModal
+            roomId={addCorridorTarget.id}
+            roomName={addCorridorTarget.name}
+            onClose={() => setAddCorridorTarget(null)}
+          />
+        )}
         {addRackTarget && (
           <AddRackModal
             corridorId={addRackTarget.corridor.id}

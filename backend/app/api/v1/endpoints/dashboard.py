@@ -22,7 +22,6 @@ from app.models.device import Device
 from app.models.enums import (
     AlertSeverity,
     DeviceStatus,
-    DeviceType,
     IPStatus,
     IntegrationStatus,
     RackStatus,
@@ -42,15 +41,6 @@ router = APIRouter()
 
 # ─── Summary schemas ──────────────────────────────────────────────────────────
 
-class DeviceTypeCounts(BaseModel):
-    server: int = 0
-    switch: int = 0
-    router: int = 0
-    firewall: int = 0
-    storage: int = 0
-    pdu: int = 0
-    patch_panel: int = 0
-    other: int = 0
 
 
 class AlertCounts(BaseModel):
@@ -73,7 +63,7 @@ class DashboardSummary(BaseModel):
     racks: int
     devices_active: int
     devices_total: int
-    devices_by_type: DeviceTypeCounts
+    devices_by_type: dict[str, int]
     vms_total: int
     vms_running: int
     virt_hosts: int
@@ -188,9 +178,6 @@ async def dashboard_summary(
     ).all()
     type_counts: dict[str, int] = {row.device_type: row.cnt for row in type_rows}
 
-    def _tc(t: DeviceType) -> int:
-        return type_counts.get(t, 0)
-
     # VM / host counts
     vm_total = (await db.execute(select(func.count()).select_from(VirtualMachine))).scalar_one()
     vm_running = (
@@ -224,23 +211,7 @@ async def dashboard_summary(
         racks=rack_count,
         devices_active=dev_active,
         devices_total=dev_total,
-        devices_by_type=DeviceTypeCounts(
-            server=_tc(DeviceType.server),
-            switch=_tc(DeviceType.switch),
-            router=_tc(DeviceType.router),
-            firewall=_tc(DeviceType.firewall),
-            storage=_tc(DeviceType.storage),
-            pdu=_tc(DeviceType.pdu),
-            patch_panel=_tc(DeviceType.patch_panel),
-            other=sum(
-                v for k, v in type_counts.items()
-                if k not in {t.value for t in (
-                    DeviceType.server, DeviceType.switch, DeviceType.router,
-                    DeviceType.firewall, DeviceType.storage, DeviceType.pdu,
-                    DeviceType.patch_panel,
-                )}
-            ),
-        ),
+        devices_by_type=type_counts,
         vms_total=vm_total,
         vms_running=vm_running,
         virt_hosts=host_count,

@@ -78,6 +78,9 @@ export default function Licenses() {
   async function handleSave() {
     setError("");
     if (!form.product_name.trim()) { setError("Product name is required."); return; }
+    if (form.license_type !== "perpetual" && !form.expiry_date) {
+      setError("Expiry date is required for non-perpetual licenses."); return;
+    }
     try {
       if (editing) await updateMut.mutateAsync(toBody(form));
       else await createMut.mutateAsync(toBody(form));
@@ -161,7 +164,11 @@ export default function Licenses() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Purchase Date"><Input type="date" value={form.purchase_date} onChange={set("purchase_date")} /></FormField>
-            <FormField label="Expiry Date"><Input type="date" value={form.expiry_date} onChange={set("expiry_date")} /></FormField>
+            <FormField label="Expiry Date">
+              <Input type="date" value={form.expiry_date} onChange={set("expiry_date")} />
+              {form.license_type !== "perpetual" && !form.expiry_date &&
+                <p className="mt-1 text-xs text-amber-600">Required for non-perpetual licenses</p>}
+            </FormField>
           </div>
           <FormField label="License Key"><Input type="password" value={form.license_key} onChange={set("license_key")} autoComplete="off" /></FormField>
           <FormField label="Notes"><Textarea value={form.notes} onChange={set("notes")} /></FormField>

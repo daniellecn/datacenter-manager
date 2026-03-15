@@ -16,6 +16,7 @@ PUT    /devices/{id}/pdu-detail         upsert PDU extension
 
 POST   /devices/{id}/sync               placeholder — triggers integration sync (Phase 8)
 """
+import ipaddress
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -31,7 +32,7 @@ from app.core.pagination import Page, PaginationDep
 from app.core.security import ActiveUser, OperatorUser
 from app.crud.audit_log import crud_audit_log
 from app.crud.device import crud_device
-from app.models.enums import AuditAction, DeviceStatus, DeviceType
+from app.models.enums import AuditAction, DeviceStatus
 from app.schemas.device import (
     DeviceCreate,
     DeviceDetailRead,
@@ -40,8 +41,8 @@ from app.schemas.device import (
     DevicePDUCreate,
     DevicePDURead,
     DeviceRead,
-    DeviceServerCreate,
     DeviceServerRead,
+    DeviceServerUpdate,
     DeviceUpdate,
 )
 
@@ -64,6 +65,12 @@ def _to_dict(obj: Any) -> dict[str, Any]:
             result[key] = str(val)
         elif isinstance(val, Decimal):
             result[key] = float(val)
+        elif isinstance(val, (
+            ipaddress.IPv4Address, ipaddress.IPv6Address,
+            ipaddress.IPv4Network, ipaddress.IPv6Network,
+            ipaddress.IPv4Interface, ipaddress.IPv6Interface,
+        )):
+            result[key] = str(val)
         else:
             result[key] = val
     return result
@@ -76,13 +83,14 @@ async def list_devices(
     _current_user: ActiveUser,
     pagination: PaginationDep,
     rack_id: uuid.UUID | None = Query(None),
-    device_type: DeviceType | None = Query(None),
+    device_type: str | None = Query(None),
     status: DeviceStatus | None = Query(None),
+    blade_chassis_id: uuid.UUID | None = Query(None),
     q: str | None = Query(None, description="Search name, serial number, or asset tag"),
     db: AsyncSession = Depends(get_db),
 ) -> Page[DeviceRead]:
-    from app.models.device import Device  # noqa: PLC0415
-    from sqlalchemy import or_  # noqa: PLC0415
+    from app.models.device import Device, DeviceServer  # noqa: PLC0415
+    from sqlalchemy import or_, select as sa_select  # noqa: PLC0415
     filters = [Device.status != DeviceStatus.inactive]
     if rack_id:
         filters.append(Device.rack_id == rack_id)
@@ -95,6 +103,14 @@ async def list_devices(
             filters.append(Device.rack_id == rack_id)
         if device_type:
             filters.append(Device.device_type == device_type)
+    if blade_chassis_id:
+        filters.append(
+            Device.id.in_(
+                sa_select(DeviceServer.device_id).where(
+                    DeviceServer.blade_chassis_id == blade_chassis_id
+                )
+            )
+        )
     if q:
         pattern = f"%{q}%"
         filters.append(
@@ -223,13 +239,26 @@ async def get_server_detail(
 @router.put("/{device_id}/server-detail", response_model=DeviceServerRead)
 async def upsert_server_detail(
     device_id: uuid.UUID,
-    body: DeviceServerCreate,
+    body: DeviceServerUpdate,
     current_user: OperatorUser,
     db: AsyncSession = Depends(get_db),
 ) -> DeviceServerRead:
+    from sqlalchemy import select as sa_select  # noqa: PLC0415
+    from app.models.device import DeviceServer  # noqa: PLC0415
     obj = await crud_device.get_with_detail(db, device_id)
     if not obj:
         raise NotFoundError("Device", str(device_id))
+    # Slot conflict check: another blade in the same chassis cannot occupy the same slot
+    if body.blade_chassis_id is not None and body.blade_slot is not None:
+        conflict = await db.execute(
+            sa_select(DeviceServer).where(
+                DeviceServer.blade_chassis_id == body.blade_chassis_id,
+                DeviceServer.blade_slot == body.blade_slot,
+                DeviceServer.device_id != device_id,
+            )
+        )
+        if conflict.scalar_one_or_none():
+            raise ConflictError(f"Slot {body.blade_slot} is already occupied in this chassis.")
     before = _to_dict(obj.server_detail) if obj.server_detail else None
     detail = await crud_device.upsert_server_detail(db, device_id=device_id, obj_in=body)
     await crud_audit_log.create(

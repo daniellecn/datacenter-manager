@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { useCreateDevice } from '@/api/devices';
+import { useCreateDevice, useDevices } from '@/api/devices';
 import { useDeviceTypes } from '@/api/deviceTypes';
 import { useQueryClient } from '@tanstack/react-query';
 import type { RackElevationDevice } from '@/types/topology';
 import { ModalOverlay, FormField, inputCls } from './AddRackModal';
+import { getDeviceFormConfig } from '@/lib/deviceFormConfig';
 
 interface Props {
   rackId: string;
@@ -42,25 +43,39 @@ export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, 
   const [deviceType, setDeviceType] = useState('server');
   const [height, setHeight] = useState(1);
   const [unitStart, setUnitStart] = useState(() => initialUnit ?? nextFreeSlot(existingDevices, totalUnits, 1));
+  const [bladeChassisId, setBladeChassisId] = useState('');
+  const [bladeSlot, setBladeSlot] = useState('');
   const { mutateAsync, isPending, error } = useCreateDevice();
   const qc = useQueryClient();
+
+  // Fetch blade chassis list for blade type
+  const cfg = getDeviceFormConfig(deviceType);
+  const { data: chassisData } = useDevices({ page: 1, size: 200, device_type: 'blade_chassis', status: 'active' });
+  const chassisList = chassisData?.items ?? [];
+
+  function handleTypeChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    setDeviceType(e.target.value);
+    setBladeChassisId('');
+    setBladeSlot('');
+  }
 
   function handleHeightChange(h: number) {
     setHeight(h);
     setUnitStart(nextFreeSlot(existingDevices, totalUnits, h));
   }
 
+  const isBlade = deviceType === 'blade';
   const isPdu = deviceType === 'pdu';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
       await mutateAsync({
-        rack_id: rackId,
+        rack_id: cfg.showRackPlacement && !isBlade ? rackId : undefined,
         name,
         device_type: deviceType,
-        rack_unit_start: isPdu ? undefined : unitStart,
-        rack_unit_size:  isPdu ? undefined : height,
+        rack_unit_start: cfg.showRackPlacement && !isBlade && !isPdu ? unitStart : undefined,
+        rack_unit_size:  cfg.showRackPlacement && !isBlade && !isPdu ? height : undefined,
         status: 'active',
       });
       qc.invalidateQueries({ queryKey: ['topology', 'rack-elevation', rackId] });
@@ -96,7 +111,7 @@ export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, 
         <FormField label="Device Type">
           <select
             value={deviceType}
-            onChange={(e) => setDeviceType(e.target.value)}
+            onChange={handleTypeChange}
             className={inputCls}
           >
             {deviceTypes.map((t) => (
@@ -105,7 +120,37 @@ export function AddDeviceModal({ rackId, rackName, totalUnits, existingDevices, 
           </select>
         </FormField>
 
-        {isPdu ? (
+        {/* Blade: show chassis + slot instead of rack placement */}
+        {isBlade ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
+              Blades are installed inside a chassis and do not occupy rack U-slots.
+            </p>
+            <FormField label="Chassis *">
+              <select
+                required
+                value={bladeChassisId}
+                onChange={(e) => setBladeChassisId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Select chassis…</option>
+                {chassisList.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Blade Slot *">
+              <input
+                required
+                type="number"
+                min={1}
+                value={bladeSlot}
+                onChange={(e) => setBladeSlot(e.target.value)}
+                className={inputCls}
+              />
+            </FormField>
+          </div>
+        ) : isPdu ? (
           <p className="text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
             PDUs are mounted on the rack side rail and do not occupy U-slots.
           </p>

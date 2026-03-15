@@ -155,6 +155,40 @@ class DeviceFactory(factory.Factory):
         return await _persist(db, cls.build(**kwargs))
 
 
+class DeviceServerFactory(factory.Factory):
+    """DeviceServer extension row — always linked to an existing Device."""
+
+    class Meta:
+        model = DeviceServer
+
+    # device_id must be supplied by caller — no default to avoid orphan rows
+    device_id = factory.LazyFunction(uuid.uuid4)
+    form_factor = None
+    blade_chassis_id = None
+    blade_slot = None
+    cpu_model = "Intel Xeon Gold 6338"
+    cpu_socket_count = 2
+    cpu_cores_per_socket = 32
+    cpu_threads_per_core = 2
+    ram_gb = 256
+    ram_max_gb = 512
+    ram_slots_total = 32
+    ram_slots_used = 16
+    nic_count = 4
+    hba_count = 2
+    bios_version = "3.40"
+    bmc_firmware_version = "8.88"
+    xclarity_uuid = None
+    storage_drives = None
+    total_blade_slots = None
+    ethernet_switch_modules = None
+    fc_switch_modules = None
+
+    @classmethod
+    async def create(cls, db: AsyncSession, **kwargs) -> DeviceServer:
+        return await _persist(db, cls.build(**kwargs))
+
+
 # ── Network Interface ─────────────────────────────────────────────────────────
 
 class NetworkInterfaceFactory(factory.Factory):
@@ -381,6 +415,105 @@ class AlertFactory(factory.Factory):
 
 
 # ── Convenience: full physical stack ─────────────────────────────────────────
+
+async def make_blade_chassis_stack(
+    db: AsyncSession,
+    *,
+    blade_count: int = 3,
+    total_blade_slots: int = 16,
+    ethernet_switch_modules: int = 2,
+    fc_switch_modules: int = 1,
+) -> tuple[Rack, Device, DeviceServer, list[Device], list[DeviceServer]]:
+    """Create a rack containing a blade chassis pre-populated with blades.
+
+    Returns:
+        rack           — the containing rack
+        chassis        — the blade_chassis Device
+        chassis_srv    — DeviceServer row for the chassis (has total_blade_slots etc.)
+        blades         — list of blade Device rows (len == blade_count)
+        blade_srvs     — list of DeviceServer rows for each blade (has blade_slot etc.)
+    """
+    dc = await DatacenterFactory.create(db)
+    room = await RoomFactory.create(db, datacenter_id=dc.id)
+    rack = await RackFactory.create(db, room_id=room.id, total_u=42, max_power_w=20000)
+
+    chassis = await DeviceFactory.create(
+        db,
+        rack_id=rack.id,
+        device_type=DeviceType.blade_chassis,
+        name="chassis-001",
+        manufacturer="HP",
+        model="BladeSystem c7000",
+        serial_number="CH-SN-0001",
+        rack_unit_start=5,
+        rack_unit_size=10,
+        power_rated_w=4800,
+        power_actual_w=2100,
+    )
+    chassis_srv = await DeviceServerFactory.create(
+        db,
+        device_id=chassis.id,
+        form_factor=None,
+        cpu_model=None,
+        cpu_socket_count=None,
+        cpu_cores_per_socket=None,
+        cpu_threads_per_core=None,
+        ram_gb=None,
+        ram_max_gb=None,
+        ram_slots_total=None,
+        ram_slots_used=None,
+        nic_count=None,
+        hba_count=None,
+        bios_version="4.10",
+        bmc_firmware_version="5.00",
+        total_blade_slots=total_blade_slots,
+        ethernet_switch_modules=ethernet_switch_modules,
+        fc_switch_modules=fc_switch_modules,
+    )
+
+    blades: list[Device] = []
+    blade_srvs: list[DeviceServer] = []
+    for slot in range(1, blade_count + 1):
+        blade = await DeviceFactory.create(
+            db,
+            rack_id=None,           # blades are NOT directly racked
+            rack_unit_start=None,
+            rack_unit_size=None,
+            device_type=DeviceType.blade,
+            name=f"blade-{slot:02d}",
+            manufacturer="HP",
+            model="BL460c Gen10",
+            serial_number=f"BL-SN-{slot:04d}",
+            power_rated_w=300,
+            power_actual_w=180,
+        )
+        blade_srv = await DeviceServerFactory.create(
+            db,
+            device_id=blade.id,
+            form_factor="blade",
+            blade_chassis_id=chassis.id,
+            blade_slot=slot,
+            cpu_model="Intel Xeon Silver 4310",
+            cpu_socket_count=2,
+            cpu_cores_per_socket=12,
+            cpu_threads_per_core=2,
+            ram_gb=64,
+            ram_max_gb=256,
+            ram_slots_total=16,
+            ram_slots_used=8,
+            nic_count=2,
+            hba_count=1,
+            bios_version="U30",
+            bmc_firmware_version="2.70",
+            total_blade_slots=None,
+            ethernet_switch_modules=None,
+            fc_switch_modules=None,
+        )
+        blades.append(blade)
+        blade_srvs.append(blade_srv)
+
+    return rack, chassis, chassis_srv, blades, blade_srvs
+
 
 async def make_physical_stack(db: AsyncSession) -> tuple[DataCenter, Room, Rack, Device]:
     """Create a minimal linked datacenter → room → rack → device."""

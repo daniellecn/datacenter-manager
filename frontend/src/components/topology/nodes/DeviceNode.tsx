@@ -64,14 +64,12 @@ function DeviceNodeComponent({ id, data, selected }: NodeProps<DeviceNodeType>) 
         >
           {data.label}
         </span>
+        <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-tight capitalize">
+          {String(data.device_type).replace(/_/g, ' ')}
+        </span>
         {data.ip_addresses?.[0] && (
-          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate leading-tight">
+          <span className="text-[10px] text-sky-500 dark:text-sky-400 font-mono truncate leading-tight">
             {data.ip_addresses[0]}
-          </span>
-        )}
-        {!data.ip_addresses?.[0] && data.rack_name && (
-          <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate leading-tight">
-            {data.rack_name}
           </span>
         )}
       </div>

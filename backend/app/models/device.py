@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.enums import (
-    DeviceFace, DeviceStatus, DeviceType,
+    DeviceFace, DeviceStatus,
     FormFactor, ManagementProtocol, SNMPVersion,
 )
 from app.models.mixins import UUIDPrimaryKey, TimestampMixin
@@ -46,7 +46,7 @@ class Device(UUIDPrimaryKey, TimestampMixin, Base):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    device_type: Mapped[DeviceType] = mapped_column(String(30), nullable=False, index=True)
+    device_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255))
     model: Mapped[Optional[str]] = mapped_column(String(255))
     part_number: Mapped[Optional[str]] = mapped_column(String(255))
@@ -157,6 +157,11 @@ class DeviceServer(Base):
     bmc_firmware_version: Mapped[Optional[str]] = mapped_column(String(100))
     # Dedup key for Lenovo xClarity sync
     xclarity_uuid: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+
+    # Blade chassis capacity fields (only meaningful when device_type=blade_chassis)
+    total_blade_slots: Mapped[Optional[int]] = mapped_column(SmallInteger)
+    ethernet_switch_modules: Mapped[Optional[int]] = mapped_column(SmallInteger)
+    fc_switch_modules: Mapped[Optional[int]] = mapped_column(SmallInteger)
 
     # Relationships
     device: Mapped["Device"] = relationship(

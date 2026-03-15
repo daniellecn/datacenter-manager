@@ -71,6 +71,10 @@ export default function Rooms() {
     setError("");
     if (!form.name.trim()) { setError("Name is required."); return; }
     if (!form.datacenter_id) { setError("Data center is required."); return; }
+    if (form.width_m && parseFloat(form.width_m) <= 0) { setError("Width must be greater than 0."); return; }
+    if (form.depth_m && parseFloat(form.depth_m) <= 0) { setError("Depth must be greater than 0."); return; }
+    if (form.height_m && parseFloat(form.height_m) <= 0) { setError("Height must be greater than 0."); return; }
+    if (form.max_power_kw && parseFloat(form.max_power_kw) <= 0) { setError("Max power must be greater than 0."); return; }
     try {
       if (editing) await updateMut.mutateAsync(toBody(form));
       else await createMut.mutateAsync(toBody(form));
@@ -103,7 +107,7 @@ export default function Rooms() {
         loading={isLoading}
         data={data?.items ?? []}
         rowKey={(r) => r.id}
-        onRowClick={(r) => navigate(`/corridors?room_id=${r.id}`)}
+        onRowClick={(r) => navigate(`/corridors?room_id=${r.id}&datacenter_id=${r.datacenter_id}`)}
         columns={[
           { key: "name", header: "Name" },
           { key: "datacenter", header: "Data Center", render: (r) => dcMap[r.datacenter_id] ?? "—" },
@@ -143,11 +147,23 @@ export default function Rooms() {
             </FormField>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <FormField label="Width (m)"><Input type="number" step="0.1" value={form.width_m} onChange={set("width_m")} /></FormField>
-            <FormField label="Depth (m)"><Input type="number" step="0.1" value={form.depth_m} onChange={set("depth_m")} /></FormField>
-            <FormField label="Height (m)"><Input type="number" step="0.1" value={form.height_m} onChange={set("height_m")} /></FormField>
+            <FormField label="Width (m)">
+              <Input type="number" step="0.1" min="0" value={form.width_m} onChange={set("width_m")} />
+              {form.width_m && parseFloat(form.width_m) <= 0 && <p className="mt-1 text-xs text-red-500">Must be greater than 0</p>}
+            </FormField>
+            <FormField label="Depth (m)">
+              <Input type="number" step="0.1" min="0" value={form.depth_m} onChange={set("depth_m")} />
+              {form.depth_m && parseFloat(form.depth_m) <= 0 && <p className="mt-1 text-xs text-red-500">Must be greater than 0</p>}
+            </FormField>
+            <FormField label="Height (m)">
+              <Input type="number" step="0.1" min="0" value={form.height_m} onChange={set("height_m")} />
+              {form.height_m && parseFloat(form.height_m) <= 0 && <p className="mt-1 text-xs text-red-500">Must be greater than 0</p>}
+            </FormField>
           </div>
-          <FormField label="Max Power (kW)"><Input type="number" step="0.1" value={form.max_power_kw} onChange={set("max_power_kw")} /></FormField>
+          <FormField label="Max Power (kW)">
+            <Input type="number" step="0.1" min="0" value={form.max_power_kw} onChange={set("max_power_kw")} />
+            {form.max_power_kw && parseFloat(form.max_power_kw) <= 0 && <p className="mt-1 text-xs text-red-500">Must be greater than 0</p>}
+          </FormField>
           <FormField label="Notes"><Textarea value={form.notes} onChange={set("notes")} /></FormField>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>

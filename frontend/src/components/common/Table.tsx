@@ -46,8 +46,8 @@ export function Table<T>({
         <tbody className="divide-y divide-gray-100 bg-white">
           {loading ? (
             <tr>
-              <td colSpan={columns.length} className="py-12 text-center">
-                <Spinner className="mx-auto" />
+              <td colSpan={columns.length} className="py-24 text-center">
+                <Spinner size="lg" className="mx-auto" />
               </td>
             </tr>
           ) : data.length === 0 ? (

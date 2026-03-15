@@ -9,13 +9,14 @@
  */
 
 import { useState } from 'react';
-import { LayoutGrid, Rows3 } from 'lucide-react';
+import { LayoutGrid, Rows3, Plus } from 'lucide-react';
 import { useFloorPlan, useDatacenters } from '@/api/topology';
 import { RackElevation } from './RackElevation';
 import { FloorPlanRackPanel } from './FloorPlanRackPanel';
-import type { DevicePanelInfo } from './physical/DeviceDetailPanel';
-import { DeviceDetailInElevation } from './FloorPlanRackPanel';
-import type { FloorPlanCorridor, FloorPlanRack, RackElevationDevice } from '@/types/topology';
+import type { FloorPlanCorridor, FloorPlanRack, FloorPlanRoom } from '@/types/topology';
+import { AddRoomModal } from './physical/AddRoomModal';
+import { AddCorridorModal } from './physical/AddCorridorModal';
+import { AddRackModal } from './physical/AddRackModal';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -103,25 +104,14 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
   // UI state
   const [viewMode, setViewMode] = useState<'tiles' | 'elevation'>('tiles');
   const [selectedRack, setSelectedRack] = useState<FloorPlanRack | null>(null);
-  const [elevationDetail, setElevationDetail] = useState<DevicePanelInfo | null>(null);
+
+  // Create modal state
+  const [showAddRoom, setShowAddRoom] = useState(false);
+  const [addCorridorTarget, setAddCorridorTarget] = useState<FloorPlanRoom | null>(null);
+  const [addRackTarget, setAddRackTarget] = useState<{ corridor: FloorPlanCorridor } | null>(null);
 
   function handleRackClick(rack: FloorPlanRack) {
     setSelectedRack(prev => (prev?.id === rack.id ? null : rack));
-  }
-
-  function handleElevationDeviceClick(device: RackElevationDevice) {
-    setElevationDetail({
-      id: device.id,
-      name: device.name,
-      device_type: device.device_type,
-      status: device.status,
-      rack_unit_start: device.rack_unit_start,
-      rack_unit_height: device.rack_unit_height,
-      power_rated_w: device.power_rated_w,
-      power_actual_w: device.power_actual_w,
-      model: device.model,
-      vendor: device.vendor,
-    });
   }
 
   return (
@@ -140,7 +130,6 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
               onChange={(e) => {
                 setSelectedDcId(e.target.value);
                 setSelectedRack(null);
-                setElevationDetail(null);
               }}
               className="border border-slate-200 dark:border-slate-700 rounded px-3 py-1.5 text-sm bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400"
             >
@@ -173,14 +162,24 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
 
         {data && (
           <>
-            {/* Header: datacenter name + view toggle */}
+            {/* Header: datacenter name + create button + view toggle */}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-                {data.name}
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                  {data.name}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAddRoom(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-md transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Room
+                </button>
+              </div>
               <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm text-xs">
                 <button
-                  onClick={() => { setViewMode('tiles'); setElevationDetail(null); }}
+                  onClick={() => setViewMode('tiles')}
                   title="Tiles view"
                   className={[
                     'flex items-center gap-1.5 px-3 py-1.5 font-medium transition-colors',
@@ -193,7 +192,7 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
                   Tiles
                 </button>
                 <button
-                  onClick={() => { setViewMode('elevation'); setSelectedRack(null); setElevationDetail(null); }}
+                  onClick={() => { setViewMode('elevation'); setSelectedRack(null); }}
                   title="Rack elevation view"
                   className={[
                     'flex items-center gap-1.5 px-3 py-1.5 font-medium transition-colors',
@@ -252,6 +251,14 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
                                 {room.notes}
                               </span>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => setAddCorridorTarget(room)}
+                              className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium bg-violet-600 hover:bg-violet-700 text-white rounded transition-colors"
+                            >
+                              <Plus className="w-2.5 h-2.5" />
+                              Corridor
+                            </button>
                           </div>
 
                           {allRacks.length === 0 ? (
@@ -261,9 +268,19 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
                             <div className="space-y-3">
                               {room.corridors.map((corridor: FloorPlanCorridor) => (
                                 <div key={corridor.id}>
-                                  <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-2 uppercase tracking-wide">
-                                    {corridor.name}
-                                  </p>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                                      {corridor.name}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setAddRackTarget({ corridor })}
+                                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-sky-600 hover:bg-sky-700 text-white rounded transition-colors"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                      Rack
+                                    </button>
+                                  </div>
                                   <div className="flex flex-wrap gap-3 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
                                     {corridor.racks.map((rack) => (
                                       <RackTile
@@ -282,15 +299,26 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
                             <div className="space-y-3">
                               {room.corridors.map((corridor: FloorPlanCorridor) => (
                                 <div key={corridor.id}>
-                                  <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-2 uppercase tracking-wide">
-                                    {corridor.name}
-                                  </p>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                                      {corridor.name}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setAddRackTarget({ corridor })}
+                                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-sky-600 hover:bg-sky-700 text-white rounded transition-colors"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                      Rack
+                                    </button>
+                                  </div>
                                   <div className="flex flex-wrap gap-6 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 items-start">
                                     {corridor.racks.map((rack) => (
                                       <div key={rack.id} className="shrink-0" style={{ width: 280 }}>
                                         <RackElevation
                                           rackId={rack.id}
-                                          onDeviceClick={handleElevationDeviceClick}
+                                          onHeaderClick={() => handleRackClick(rack)}
+                                          selected={selectedRack?.id === rack.id}
                                         />
                                       </div>
                                     ))}
@@ -310,9 +338,8 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
         )}
       </div>
 
-      {/* ── Right panel ───────────────────────────────────────────────────── */}
-      {/* Tiles mode: FloorPlanRackPanel when a rack is selected */}
-      {viewMode === 'tiles' && selectedRack && (
+      {/* ── Right panel — FloorPlanRackPanel for both tiles and elevation modes */}
+      {selectedRack && (
         <div className="w-80 shrink-0 border-l border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
           <FloorPlanRackPanel
             rackId={selectedRack.id}
@@ -323,14 +350,22 @@ export function DatacenterFloorPlan({ datacenterId: propDcId }: DatacenterFloorP
         </div>
       )}
 
-      {/* Elevation mode: device detail panel when a device is clicked */}
-      {viewMode === 'elevation' && elevationDetail && (
-        <div className="w-80 shrink-0 border-l border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
-          <DeviceDetailInElevation
-            device={elevationDetail}
-            onClose={() => setElevationDetail(null)}
-          />
-        </div>
+      {showAddRoom && dcId && (
+        <AddRoomModal datacenterId={dcId} onClose={() => setShowAddRoom(false)} />
+      )}
+      {addCorridorTarget && (
+        <AddCorridorModal
+          roomId={addCorridorTarget.id}
+          roomName={addCorridorTarget.name}
+          onClose={() => setAddCorridorTarget(null)}
+        />
+      )}
+      {addRackTarget && (
+        <AddRackModal
+          corridorId={addRackTarget.corridor.id}
+          corridorName={addRackTarget.corridor.name}
+          onClose={() => setAddRackTarget(null)}
+        />
       )}
     </div>
   );

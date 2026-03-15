@@ -40,7 +40,7 @@ export function useUpdateDataCenter(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const { data } = await api.patch(`/datacenters/${id}`, body);
+      const { data } = await api.put(`/datacenters/${id}`, body);
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),

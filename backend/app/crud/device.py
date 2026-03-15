@@ -14,7 +14,6 @@ from app.schemas.device import (
     DeviceNetworkUpdate,
     DevicePDUCreate,
     DevicePDUUpdate,
-    DeviceServerCreate,
     DeviceServerUpdate,
     DeviceUpdate,
 )
@@ -90,7 +89,7 @@ class CRUDDevice(CRUDBase[Device, DeviceCreate, DeviceUpdate]):
     # ── Extension table helpers ───────────────────────────────────────────────
 
     async def upsert_server_detail(
-        self, db: AsyncSession, *, device_id: uuid.UUID, obj_in: DeviceServerCreate
+        self, db: AsyncSession, *, device_id: uuid.UUID, obj_in: DeviceServerUpdate
     ) -> DeviceServer:
         result = await db.execute(
             select(DeviceServer).where(DeviceServer.device_id == device_id)

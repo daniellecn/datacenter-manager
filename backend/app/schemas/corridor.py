@@ -2,13 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CorridorBase(BaseModel):
     room_id: uuid.UUID
-    name: str
-    position: Optional[int] = None
+    name: str = Field(min_length=1, max_length=200)
+    position: Optional[int] = Field(default=None, ge=0)
     notes: Optional[str] = None
 
 
@@ -17,8 +17,8 @@ class CorridorCreate(CorridorBase):
 
 
 class CorridorUpdate(BaseModel):
-    name: Optional[str] = None
-    position: Optional[int] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    position: Optional[int] = Field(default=None, ge=0)
     notes: Optional[str] = None
     corridor_id: Optional[uuid.UUID] = None  # allows reassigning room if needed
 

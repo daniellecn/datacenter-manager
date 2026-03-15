@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import LAGMode, LinkStatus, LinkType
 
@@ -12,7 +12,7 @@ class LAGGroupBase(BaseModel):
     device_id: uuid.UUID
     name: str
     mode: LAGMode
-    combined_speed_mbps: Optional[int] = None
+    combined_speed_mbps: Optional[int] = Field(default=None, ge=0)
 
 
 class LAGGroupCreate(LAGGroupBase):
@@ -22,7 +22,7 @@ class LAGGroupCreate(LAGGroupBase):
 class LAGGroupUpdate(BaseModel):
     name: Optional[str] = None
     mode: Optional[LAGMode] = None
-    combined_speed_mbps: Optional[int] = None
+    combined_speed_mbps: Optional[int] = Field(default=None, ge=0)
 
 
 class LAGGroupRead(LAGGroupBase):
@@ -37,7 +37,7 @@ class NetworkLinkBase(BaseModel):
     source_interface_id: uuid.UUID
     target_interface_id: uuid.UUID
     link_type: LinkType
-    speed_mbps: Optional[int] = None
+    speed_mbps: Optional[int] = Field(default=None, ge=0)
     cable_label: Optional[str] = None
     cable_color: Optional[str] = None
     lag_group_id: Optional[uuid.UUID] = None
@@ -48,12 +48,18 @@ class NetworkLinkBase(BaseModel):
 
 
 class NetworkLinkCreate(NetworkLinkBase):
-    pass
+    @model_validator(mode="after")
+    def validate_no_self_loop(self) -> "NetworkLinkCreate":
+        if self.source_interface_id == self.target_interface_id:
+            raise ValueError(
+                "source_interface_id and target_interface_id must be different (no self-loops)"
+            )
+        return self
 
 
 class NetworkLinkUpdate(BaseModel):
     link_type: Optional[LinkType] = None
-    speed_mbps: Optional[int] = None
+    speed_mbps: Optional[int] = Field(default=None, ge=0)
     cable_label: Optional[str] = None
     cable_color: Optional[str] = None
     lag_group_id: Optional[uuid.UUID] = None

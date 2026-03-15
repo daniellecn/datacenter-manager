@@ -51,7 +51,7 @@ export function useUpdateDevice(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const { data } = await api.patch(`/devices/${id}`, body);
+      const { data } = await api.put(`/devices/${id}`, body);
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
@@ -65,6 +65,26 @@ export function useDeleteDevice() {
       await api.delete(`/devices/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+export function useChassisBlades(chassisId: string | null) {
+  return useQuery<DeviceDetailRead[]>({
+    queryKey: [KEY, "chassis-blades", chassisId],
+    queryFn: async () => {
+      const { data } = await api.get<Page<DeviceRead>>("/devices", {
+        params: { blade_chassis_id: chassisId, size: 200 },
+      });
+      // Fetch full detail for each blade in parallel so blade_slot (server_detail) is available
+      const details = await Promise.all(
+        data.items.map(async (b) => {
+          const { data: detail } = await api.get<DeviceDetailRead>(`/devices/${b.id}`);
+          return detail;
+        }),
+      );
+      return details;
+    },
+    enabled: !!chassisId,
   });
 }
 

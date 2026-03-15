@@ -14,6 +14,8 @@ class DeviceType(str, enum.Enum):
     kvm = "kvm"
     load_balancer = "load_balancer"
     cable_manager = "cable_manager"
+    blade_chassis = "blade_chassis"
+    blade = "blade"
     other = "other"
 
 

@@ -7,12 +7,22 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatDate(d: string | null | undefined): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString();
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "—";
+  const day = String(dt.getDate()).padStart(2, "0");
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${dt.getFullYear()}`;
 }
 
 export function formatDateTime(d: string | null | undefined): string {
   if (!d) return "—";
-  return new Date(d).toLocaleString();
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "—";
+  const day = String(dt.getDate()).padStart(2, "0");
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  const hh = String(dt.getHours()).padStart(2, "0");
+  const mm = String(dt.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${dt.getFullYear()} ${hh}:${mm}`;
 }
 
 export function formatBytes(gb: number | null | undefined): string {

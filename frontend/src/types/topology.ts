@@ -1,6 +1,9 @@
 // Topology types — mirrors backend /topology/* response schemas
 
-export type DeviceType =
+// Device type is now user-maintainable (stored in the device_types table).
+// The union below covers built-in types and is used as keys in DEVICE_ICON_MAP /
+// DEVICE_COLORS; unknown custom types fall back to "generic" at render time.
+export type KnownDeviceType =
   | 'server'
   | 'switch'
   | 'router'
@@ -11,6 +14,8 @@ export type DeviceType =
   | 'blade_chassis'
   | 'blade'
   | 'generic';
+
+export type DeviceType = KnownDeviceType | string;
 
 export type DeviceStatus = 'active' | 'inactive' | 'maintenance' | 'unknown';
 

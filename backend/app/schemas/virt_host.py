@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VirtHostBase(BaseModel):
@@ -11,8 +11,8 @@ class VirtHostBase(BaseModel):
     platform_version: Optional[str] = None
     platform_uuid: Optional[str] = None
     platform_data: Optional[dict[str, Any]] = None
-    vcpu_allocated: Optional[int] = None
-    ram_allocated_gb: Optional[int] = None
+    vcpu_allocated: Optional[int] = Field(default=None, ge=0)
+    ram_allocated_gb: Optional[int] = Field(default=None, ge=0)
     is_in_maintenance: bool = False
 
 
@@ -25,8 +25,8 @@ class VirtHostUpdate(BaseModel):
     platform_version: Optional[str] = None
     platform_uuid: Optional[str] = None
     platform_data: Optional[dict[str, Any]] = None
-    vcpu_allocated: Optional[int] = None
-    ram_allocated_gb: Optional[int] = None
+    vcpu_allocated: Optional[int] = Field(default=None, ge=0)
+    ram_allocated_gb: Optional[int] = Field(default=None, ge=0)
     is_in_maintenance: Optional[bool] = None
 
 

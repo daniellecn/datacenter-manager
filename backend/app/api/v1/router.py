@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     dashboard,
     datacenters,
     datastores,
+    device_types,
     devices,
     integrations,
     interfaces,
@@ -36,6 +37,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 
 # Physical layer
+api_router.include_router(device_types.router, prefix="/device-types", tags=["physical"])
 api_router.include_router(datacenters.router, prefix="/datacenters", tags=["physical"])
 api_router.include_router(rooms.router, prefix="/rooms", tags=["physical"])
 api_router.include_router(corridors.router, prefix="/corridors", tags=["physical"])
