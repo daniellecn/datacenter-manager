@@ -7,11 +7,13 @@
 
 import { useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
+import { FileDown, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { PhysicalView } from "@/components/topology/physical/PhysicalView";
 import { NetworkTopologyCanvas } from "@/components/topology/NetworkTopologyCanvas";
 import { DatacenterFloorPlan } from "@/components/topology/DatacenterFloorPlan";
 import { useDatacenters } from "@/api/topology";
 import { useUIStore } from "@/store";
+import { useExportTopologyPdf } from "@/hooks/useExportTopologyPdf";
 
 type Tab = "physical" | "network" | "floorplan";
 
@@ -43,6 +45,7 @@ export default function Topology() {
 
   const { data: dcs } = useDatacenters();
   const { clearHighlightedPath, setHighlightedVlan } = useUIStore();
+  const { exportPdf, status: exportStatus } = useExportTopologyPdf();
 
   const handleTabChange = useCallback(
     (tab: Tab) => {
@@ -98,8 +101,41 @@ export default function Topology() {
           </select>
         </div>
 
+        {/* Export PDF button */}
+        {selectedDcId && (() => {
+          const dcName = dcs?.find((d) => d.id === selectedDcId)?.name ?? "datacenter";
+          const busy   = exportStatus === "fetching" || exportStatus === "rendering";
+          const label  =
+            exportStatus === "fetching"  ? "Fetching data…" :
+            exportStatus === "rendering" ? "Building PDF…"  :
+            exportStatus === "done"      ? "Downloaded!"    :
+            exportStatus === "error"     ? "Error"          : "Download PNG";
+          const Icon =
+            exportStatus === "done"  ? CheckCircle2 :
+            exportStatus === "error" ? AlertCircle  :
+            busy                     ? Loader2      : FileDown;
+
+          return (
+            <button
+              onClick={() => !busy && exportPdf(selectedDcId, dcName)}
+              disabled={busy}
+              className={[
+                "ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors",
+                exportStatus === "done"  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" :
+                exportStatus === "error" ? "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-300" :
+                busy                     ? "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-500 cursor-wait" :
+                                           "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800",
+              ].join(" ")}
+              title="Download topology as PNG"
+            >
+              <Icon size={13} className={busy ? "animate-spin" : undefined} />
+              {label}
+            </button>
+          );
+        })()}
+
         {/* Tab switcher */}
-        <nav className="ml-auto flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
+        <nav className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
           {TABS.map((tab) => (
             <button
               key={tab.id}
