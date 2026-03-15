@@ -1,5 +1,56 @@
 # Installation Guide
 
+There are two ways to install the application:
+
+- **[Option A — Automated setup script](#option-a--automated-setup-recommended)** ← recommended, runs everything for you
+- **[Option B — Manual step-by-step](#option-b--manual-step-by-step)** ← if you need full control over each step
+
+---
+
+## Option A — Automated setup (recommended)
+
+`setup.sh` runs all steps unattended. It will ask you three questions
+(passwords + dev/prod mode) and handle everything else automatically.
+
+### Prerequisites for Option A
+
+| Tool | How to get it |
+|------|--------------|
+| **Docker Engine** ≥ 24 | https://docs.docker.com/engine/install/ |
+| **Docker Compose** v2 | Included with Docker Desktop; standalone: https://docs.docker.com/compose/install/ |
+| **Git** | https://git-scm.com/ |
+| **OpenSSL** | Pre-installed on Linux/macOS; Windows: Git Bash includes it |
+
+### Run the script
+
+```bash
+git clone <your-repo-url> datacenter-manager
+cd datacenter-manager
+bash setup.sh
+```
+
+The script will:
+
+1. Verify Docker, Docker Compose, and OpenSSL are installed
+2. Ask whether you want **development** or **production** mode
+3. Prompt for `POSTGRES_PASSWORD`, `DCM_DB_PASSWORD`, and the initial admin password
+4. Generate `SECRET_KEY` and `FERNET_KEY` automatically using Docker
+5. Write a complete `.env` file
+6. Create `nginx/certs/` and generate a self-signed TLS certificate (production only)
+7. Build all Docker images
+8. Start PostgreSQL and wait until healthy
+9. Run database migrations
+10. Start the full stack
+11. Verify the backend health probe
+12. Print the app URL and login instructions
+
+When it finishes, open the URL it prints, log in with the admin account,
+and **change the password** when prompted (mandatory on first login).
+
+---
+
+## Option B — Manual step-by-step
+
 Follow these steps in order on a fresh clone of the repository.
 There are two paths: **Development** (for testing/evaluation on a local machine)
 and **Production** (for a real server deployment).
