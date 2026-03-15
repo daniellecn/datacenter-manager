@@ -20,10 +20,13 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.audit_log import crud_audit_log
+from app.models.alert import Alert
 from app.models.audit_log import AuditLog
 from app.models.datastore import Datastore
 from app.models.device import Device, DeviceNetwork, DeviceServer
 from app.models.enums import (
+    AlertSeverity,
+    AlertType,
     AuditAction,
     DeviceStatus,
     IntegrationStatus,
@@ -39,6 +42,33 @@ logger = logging.getLogger(__name__)
 
 # Fields that must never appear in audit diffs
 _SENSITIVE_SUFFIXES = ("_enc", "_password", "_key", "_secret")
+
+# Fields where a sync-driven change should raise an overwrite alert.
+# These are fields that operators commonly enter manually; silently overwriting
+# them without notice would be confusing.
+_OVERWRITE_ALERT_FIELDS = frozenset(
+    {
+        "name",
+        "device_type",
+        "manufacturer",
+        "model",
+        "part_number",
+        "serial_number",
+        "asset_tag",
+        "rack_id",
+        "rack_unit_start",
+        "rack_unit_size",
+        "management_ip",
+        "management_protocol",
+        "snmp_version",
+        "purchase_date",
+        "warranty_expiry",
+        "end_of_support_date",
+        "end_of_life_date",
+        "notes",
+        "custom_fields",
+    }
+)
 
 
 # ─── Stats Tracking ───────────────────────────────────────────────────────────
@@ -140,6 +170,69 @@ async def _write_audit(
     # Flushed to DB when the caller commits
 
 
+# ─── Overwrite Alert ──────────────────────────────────────────────────────────
+
+
+async def _generate_overwrite_alert(
+    db: AsyncSession,
+    device: Device,
+    diff: dict[str, Any],
+) -> None:
+    """
+    If a sync is about to overwrite fields that a user might have entered
+    manually, create an Alert so the operator can review the change.
+
+    The alert is upserted (one per device) so repeated syncs don't flood the
+    alerts table — the latest overwrite diff replaces the previous one.
+    """
+    # Only alert when at least one user-visible field is changing
+    alertable_changes = {k: v for k, v in diff.items() if k in _OVERWRITE_ALERT_FIELDS}
+    if not alertable_changes:
+        return
+
+    # Build a human-readable summary of changed fields
+    field_lines = []
+    for field, change in alertable_changes.items():
+        before = change.get("before")
+        after = change.get("after")
+        field_lines.append(f"  • {field}: '{before}' → '{after}'")
+    changes_text = "\n".join(field_lines)
+
+    device_label = f"'{device.name}'" if device.name else f"ID {device.id}"
+    serial_note = f" (serial: {device.serial_number})" if device.serial_number else ""
+
+    message = (
+        f"Integration sync overwrote data on device {device_label}{serial_note}.\n"
+        f"Changed fields:\n{changes_text}"
+    )
+
+    # Upsert — one active alert per device for sync_overwrite events
+    # Uses SELECT + update-or-insert pattern directly (avoids importing crud_alert)
+    result = await db.execute(
+        select(Alert).where(
+            Alert.entity_type == "device",
+            Alert.entity_id == device.id,
+            Alert.alert_type == AlertType.other,
+            Alert.acknowledged_at.is_(None),
+        )
+    )
+    existing_alert = result.scalar_one_or_none()
+
+    if existing_alert is not None:
+        existing_alert.message = message
+        db.add(existing_alert)
+    else:
+        db.add(
+            Alert(
+                entity_type="device",
+                entity_id=device.id,
+                alert_type=AlertType.other,
+                severity=AlertSeverity.warning,
+                message=message,
+            )
+        )
+
+
 # ─── Device Upsert ────────────────────────────────────────────────────────────
 
 
@@ -185,6 +278,7 @@ async def upsert_device_by_serial(
         if changed:
             after = _row_to_dict(existing)
             diff = compute_diff(before, after)
+            await _generate_overwrite_alert(db, existing, diff)
             await _write_audit(db, "device", str(existing.id), AuditAction.update, diff)
             stats.items_updated += 1
         else:
@@ -246,6 +340,7 @@ async def upsert_device_by_xclarity_uuid(
         if changed:
             after = _row_to_dict(existing)
             diff = compute_diff(before, after)
+            await _generate_overwrite_alert(db, existing, diff)
             await _write_audit(db, "device", str(existing.id), AuditAction.update, diff)
             stats.items_updated += 1
         else:
@@ -315,6 +410,7 @@ async def upsert_network_device(
         if changed:
             after = _row_to_dict(existing)
             diff = compute_diff(before, after)
+            await _generate_overwrite_alert(db, existing, diff)
             await _write_audit(db, "device", str(existing.id), AuditAction.update, diff)
             stats.items_updated += 1
         else:

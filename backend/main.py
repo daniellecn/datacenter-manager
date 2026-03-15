@@ -46,9 +46,23 @@ async def lifespan(app: FastAPI):
                 "Check DB connectivity and restart, or create the user manually."
             )
 
-    # TODO Phase 8: start APScheduler, load sync jobs from integrations table
+    # ── Phase 8: start APScheduler and load scheduled sync jobs ──────────────
+    from app.tasks.scheduler import load_and_schedule_all, start, stop  # noqa: PLC0415
+
+    try:
+        start()
+        async with AsyncSessionLocal() as db:
+            await load_and_schedule_all(db)
+    except Exception:
+        logger.exception("Scheduler startup failed — integration sync jobs not scheduled")
+
     yield
-    # TODO Phase 8: stop APScheduler
+
+    # ── Phase 8: graceful scheduler shutdown ──────────────────────────────────
+    try:
+        stop()
+    except Exception:
+        logger.exception("Scheduler shutdown error")
 
 
 app = FastAPI(
