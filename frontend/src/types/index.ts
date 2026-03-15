@@ -13,7 +13,9 @@ export interface Page<T> {
 
 export interface TokenResponse {
   access_token: string;
-  refresh_token: string;
+  // refresh_token is set as an httpOnly cookie by the backend; the body field
+  // may still be present for backward compatibility but must not be stored.
+  refresh_token?: string;
   token_type: string;
   must_change_password: boolean;
 }

@@ -260,3 +260,5 @@ class AuditAction(str, enum.Enum):
     delete = "delete"
     sync = "sync"
     login = "login"
+    logout = "logout"
+    token_refresh = "token_refresh"

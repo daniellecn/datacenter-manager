@@ -71,8 +71,8 @@ class Device(UUIDPrimaryKey, TimestampMixin, Base):
     management_ip: Mapped[Optional[str]] = mapped_column(INET)
     management_protocol: Mapped[Optional[ManagementProtocol]] = mapped_column(String(10))
 
-    # SNMP (community stored encrypted)
-    snmp_community: Mapped[Optional[str]] = mapped_column(String(500))
+    # SNMP — community string is Fernet-encrypted at rest (never returned in API responses)
+    snmp_community_enc: Mapped[Optional[str]] = mapped_column(String(500))
     snmp_version: Mapped[Optional[SNMPVersion]] = mapped_column(String(5))
 
     # SSH credentials (encrypted via Fernet — never returned in API responses)

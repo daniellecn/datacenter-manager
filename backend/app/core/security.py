@@ -13,6 +13,7 @@ Type aliases for use in endpoint signatures:
   OperatorUser  — mutating endpoints (write access)
   AdminUser     — admin-only endpoints
 """
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -26,6 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
 _ACCESS = "access"
@@ -97,6 +100,8 @@ async def get_current_user(
     from app.crud.user import crud_user  # noqa: PLC0415
 
     if credentials is None:
+        # Log missing/malformed Authorization header — may indicate a probing attempt.
+        logger.warning("Authentication failed: no Bearer token in request.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated.",
@@ -106,6 +111,7 @@ async def get_current_user(
     payload = decode_token(credentials.credentials)
 
     if payload.get("type") != _ACCESS:
+        logger.warning("Authentication failed: wrong token type '%s'.", payload.get("type"))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token type.",
@@ -113,6 +119,7 @@ async def get_current_user(
 
     jti: str = payload.get("jti", "")
     if jti and await crud_token_revocation.is_revoked(db, jti):
+        logger.warning("Authentication failed: revoked token jti=%s.", jti)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",
@@ -123,6 +130,7 @@ async def get_current_user(
     try:
         user_id = uuid.UUID(sub)
     except ValueError:
+        logger.warning("Authentication failed: malformed token subject '%s'.", sub)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Malformed token subject.",
@@ -130,6 +138,7 @@ async def get_current_user(
 
     user = await crud_user.get(db, user_id)
     if user is None or not user.is_active:
+        logger.warning("Authentication failed: user %s not found or deactivated.", sub)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or deactivated.",

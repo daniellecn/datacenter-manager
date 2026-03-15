@@ -153,7 +153,8 @@ class DeviceBase(BaseModel):
     status: DeviceStatus = DeviceStatus.active
     management_ip: Optional[str] = None
     management_protocol: Optional[ManagementProtocol] = None
-    snmp_community: Optional[str] = None
+    # snmp_community excluded from base/read — it is encrypted at rest.
+    # Provide it in DeviceCreate / DeviceUpdate; it is never returned in responses.
     snmp_version: Optional[SNMPVersion] = None
     ssh_username: Optional[str] = None
     purchase_date: Optional[date] = None
@@ -165,7 +166,9 @@ class DeviceBase(BaseModel):
 
 
 class DeviceCreate(DeviceBase):
-    # Plaintext SSH credentials — CRUD layer encrypts before storing as *_enc
+    # Plaintext credentials — CRUD layer encrypts before storing as *_enc fields.
+    # These are write-only and never returned in any Read schema.
+    snmp_community: Optional[str] = None
     ssh_password: Optional[str] = None
     ssh_key: Optional[str] = None
 
@@ -215,6 +218,7 @@ class DeviceUpdate(BaseModel):
     status: Optional[DeviceStatus] = None
     management_ip: Optional[str] = None
     management_protocol: Optional[ManagementProtocol] = None
+    # Plaintext credentials — encrypted by CRUD; never returned in responses.
     snmp_community: Optional[str] = None
     snmp_version: Optional[SNMPVersion] = None
     ssh_username: Optional[str] = None

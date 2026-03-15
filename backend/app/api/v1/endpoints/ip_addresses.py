@@ -16,7 +16,7 @@ import asyncio
 import ipaddress
 import platform
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -37,9 +37,24 @@ from app.schemas.ip_address import IPAddressCreate, IPAddressRead, IPAddressUpda
 router = APIRouter()
 
 # ─── In-memory scan job store ─────────────────────────────────────────────────
-# Jobs are kept for up to 1 hour after completion then superseded on next GC call.
+# Jobs are evicted after _JOB_TTL once completed/failed to prevent unbounded growth.
 _scan_jobs: dict[str, dict[str, Any]] = {}
 _MAX_HOSTS_PER_SCAN = 1024  # refuse /8, /16 — insane scan times
+_MAX_PARALLEL_LIMIT = 256   # cap max_parallel to prevent fd exhaustion
+_JOB_TTL = timedelta(hours=1)
+
+
+def _evict_stale_jobs() -> None:
+    """Remove completed/failed scan jobs older than _JOB_TTL."""
+    cutoff = datetime.now(timezone.utc) - _JOB_TTL
+    stale = [
+        jid for jid, job in _scan_jobs.items()
+        if job["status"] in ("completed", "failed")
+        and job.get("completed_at") is not None
+        and job["completed_at"] < cutoff
+    ]
+    for jid in stale:
+        del _scan_jobs[jid]
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -77,11 +92,22 @@ def _to_dict(obj: IPAddressRead) -> dict:
 
 
 async def _ping(ip: str, timeout: int) -> bool:
-    """Return True if the host responds to a single ping."""
+    """Return True if the host responds to a single ping.
+
+    SECURITY: The IP address is strictly validated through ipaddress before being
+    passed to create_subprocess_exec. This prevents any injection even if a
+    malicious value somehow ends up in the database.
+    """
+    # Strict validation — raises ValueError if not a valid IP address.
+    try:
+        validated_ip = str(ipaddress.ip_address(ip))
+    except ValueError:
+        return False
+
     if platform.system() == "Windows":
-        args = ["ping", "-n", "1", "-w", str(timeout * 1000), str(ip)]
+        args = ["ping", "-n", "1", "-w", str(timeout * 1000), validated_ip]
     else:
-        args = ["ping", "-c", "1", "-W", str(timeout), str(ip)]
+        args = ["ping", "-c", "1", "-W", str(timeout), validated_ip]
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -242,6 +268,12 @@ async def scan_subnet(
             detail=f"Network too large: {host_count} hosts. Maximum is {_MAX_HOSTS_PER_SCAN}. Use a /22 or smaller.",
         )
 
+    # Evict completed jobs older than _JOB_TTL before creating a new one.
+    _evict_stale_jobs()
+
+    # Cap parallelism to prevent file-descriptor exhaustion.
+    max_parallel = min(body.max_parallel, _MAX_PARALLEL_LIMIT)
+
     job_id = str(uuid.uuid4())
     _scan_jobs[job_id] = {
         "job_id": job_id,
@@ -262,7 +294,7 @@ async def scan_subnet(
         cidr,
         subnet_id,
         body.timeout_seconds,
-        body.max_parallel,
+        max_parallel,
     )
 
     return ScanJobResponse(job_id=job_id, status="queued", cidr=cidr)

@@ -14,8 +14,17 @@ def _get_fernet() -> Fernet:
     global _fernet
     if _fernet is None:
         if not settings.fernet_key:
-            raise RuntimeError("FERNET_KEY environment variable is not set.")
-        _fernet = Fernet(settings.fernet_key.encode())
+            raise RuntimeError(
+                "FERNET_KEY environment variable is not set. "
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
+        try:
+            _fernet = Fernet(settings.fernet_key.encode())
+        except (ValueError, Exception) as exc:
+            raise RuntimeError(
+                f"FERNET_KEY is not a valid Fernet key: {exc}. "
+                "Regenerate it with Fernet.generate_key()."
+            ) from exc
     return _fernet
 
 

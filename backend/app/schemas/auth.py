@@ -10,14 +10,18 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    # refresh_token is now set as an httpOnly cookie by the backend.
+    # This body field is omitted from responses; kept optional for legacy clients.
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     # Frontend uses this flag to redirect to the change-password page.
     must_change_password: bool = False
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Optional: the backend reads the refresh token from the httpOnly cookie
+    # first. This body field is retained for legacy clients only.
+    refresh_token: Optional[str] = None
 
 
 class LogoutRequest(BaseModel):

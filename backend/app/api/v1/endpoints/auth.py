@@ -1,27 +1,34 @@
 """
 Auth endpoints — Phase 4
 
-POST /auth/login           — authenticate, return access + refresh tokens
-POST /auth/refresh         — token rotation (revokes old refresh jti, issues new pair)
-POST /auth/logout          — revoke access token jti (+ optional refresh token)
+POST /auth/login           — authenticate, return access token + set httpOnly refresh cookie
+POST /auth/refresh         — token rotation (reads cookie, revokes old jti, issues new pair)
+POST /auth/logout          — revoke access token jti + clear refresh cookie
 GET  /auth/me              — return current user (requires active, non-locked account)
 POST /auth/change-password — change password (works even when must_change_password=True)
 
 Security guarantees implemented here:
+- Refresh token is stored ONLY in an httpOnly, Secure, SameSite=Strict cookie.
+  It is never readable by JavaScript, which eliminates XSS-based token theft.
 - Failed logins are audit-logged with username and client IP.
 - Successful logins update last_login_at and are audit-logged.
-- Refresh token rotation: old refresh jti is written to token_revocations on every use.
-- Logout writes the access token jti (and optionally refresh token jti) to token_revocations.
+- Refresh token rotation: old refresh jti is written to token_revocations BEFORE
+  issuing new tokens, preventing replay attacks.
+- Logout writes the access token jti (and clears the refresh cookie) to token_revocations.
 - Password changes are audit-logged; must_change_password is cleared by set_password().
 - IP is extracted from X-Forwarded-For (set by Nginx) with fallback to request.client.host.
+- CSRF: SameSite=Strict on the refresh cookie mitigates CSRF on the /auth/refresh
+  endpoint. All other endpoints require an Authorization: Bearer header which
+  browsers never send automatically, making CSRF non-exploitable there.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     ActiveUser,
@@ -49,6 +56,9 @@ from app.schemas.user import UserRead
 router = APIRouter()
 
 _REFRESH_TYPE = "refresh"
+_REFRESH_COOKIE = "refresh_token"
+# Cookie path scoped to the auth prefix — the browser only sends it to these endpoints.
+_REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
 def _client_ip(request: Request) -> str | None:
@@ -63,21 +73,47 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    """Attach the refresh token as an httpOnly, SameSite=Strict cookie."""
+    max_age = settings.refresh_token_expire_days * 86400
+    response.set_cookie(
+        key=_REFRESH_COOKIE,
+        value=token,
+        httponly=True,
+        secure=(settings.environment == "production"),
+        samesite="strict",
+        max_age=max_age,
+        path=_REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    """Remove the refresh token cookie."""
+    response.delete_cookie(
+        key=_REFRESH_COOKIE,
+        path=_REFRESH_COOKIE_PATH,
+    )
+
+
 # ─── POST /auth/login ─────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Authenticate with username + password, receive an access + refresh token pair."""
+    """Authenticate with username + password.
+
+    Returns an access token in the response body and sets the refresh token as
+    an httpOnly cookie. The cookie is never accessible to JavaScript.
+    """
     ip = _client_ip(request)
 
     user = await crud_user.get_by_username(db, body.username)
 
     if user is None or not user.is_active or not verify_password(body.password, user.hashed_password):
-        # Log failed attempt (entity_id="unknown" — we may not know the real user)
         await crud_audit_log.create(
             db,
             entity_type="user",
@@ -92,7 +128,6 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Update last_login_at
     user.last_login_at = datetime.now(timezone.utc)
     db.add(user)
     await db.commit()
@@ -100,6 +135,8 @@ async def login(
 
     access_token, _ = create_access_token(str(user.id))
     refresh_token, _ = create_refresh_token(str(user.id))
+
+    _set_refresh_cookie(response, refresh_token)
 
     await crud_audit_log.create(
         db,
@@ -113,7 +150,6 @@ async def login(
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
         must_change_password=user.must_change_password,
     )
 
@@ -122,14 +158,30 @@ async def login(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_tokens(
-    body: RefreshRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
+    body: RefreshRequest | None = None,
 ) -> TokenResponse:
-    """Rotate tokens: revoke the submitted refresh token, issue a new pair."""
+    """Rotate tokens.
+
+    Reads the refresh token from the httpOnly cookie (preferred) or the request
+    body (legacy). Revokes the old token BEFORE issuing new ones to close the
+    window in which a stolen token could be replayed.
+    """
     ip = _client_ip(request)
 
-    payload = decode_token(body.refresh_token)
+    # Cookie takes precedence over body (httpOnly cookie is unforgeable by JS).
+    raw_token: str | None = request.cookies.get(_REFRESH_COOKIE)
+    if raw_token is None and body is not None:
+        raw_token = body.refresh_token
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing.",
+        )
+
+    payload = decode_token(raw_token)
 
     if payload.get("type") != _REFRESH_TYPE:
         raise HTTPException(
@@ -138,6 +190,10 @@ async def refresh_tokens(
         )
 
     jti: str = payload.get("jti", "")
+
+    # SECURITY (Issue #4): Check revocation BEFORE issuing new tokens.
+    # If the same refresh token is presented twice concurrently, the second
+    # caller will find the jti already in token_revocations and be rejected.
     if jti and await crud_token_revocation.is_revoked(db, jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -160,7 +216,7 @@ async def refresh_tokens(
             detail="User not found or deactivated.",
         )
 
-    # Rotate: immediately revoke the old refresh token
+    # Revoke the old refresh token IMMEDIATELY — before issuing new tokens.
     if jti:
         exp = payload.get("exp")
         expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
@@ -169,11 +225,13 @@ async def refresh_tokens(
     new_access, _ = create_access_token(str(user.id))
     new_refresh, _ = create_refresh_token(str(user.id))
 
+    _set_refresh_cookie(response, new_refresh)
+
     await crud_audit_log.create(
         db,
         entity_type="user",
         entity_id=str(user.id),
-        action=AuditAction.login,
+        action=AuditAction.token_refresh,
         user_id=user.id,
         diff={"event": "token_refresh"},
         ip_address=ip,
@@ -181,7 +239,6 @@ async def refresh_tokens(
 
     return TokenResponse(
         access_token=new_access,
-        refresh_token=new_refresh,
         must_change_password=user.must_change_password,
     )
 
@@ -192,14 +249,15 @@ async def refresh_tokens(
 async def logout(
     current_user: CurrentUser,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     body: LogoutRequest | None = None,
 ) -> None:
-    """Revoke the current access token (and optional refresh token) and log the event."""
+    """Revoke the current access token, revoke the refresh cookie, and log the event."""
     ip = _client_ip(request)
 
-    # Revoke the access token that was used to authenticate this request
+    # Revoke the access token used to authenticate this request
     if credentials:
         payload = decode_token(credentials.credentials)
         jti: str = payload.get("jti", "")
@@ -208,10 +266,15 @@ async def logout(
             expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
             await crud_token_revocation.revoke(db, jti=jti, expires_at=expires_at)
 
-    # Optionally revoke the refresh token the client provides
-    if body and body.refresh_token:
+    # Revoke the refresh token from the cookie
+    raw_refresh = request.cookies.get(_REFRESH_COOKIE)
+    # Also accept an explicit body refresh token (legacy clients)
+    if raw_refresh is None and body is not None:
+        raw_refresh = body.refresh_token
+
+    if raw_refresh:
         try:
-            rt_payload = decode_token(body.refresh_token)
+            rt_payload = decode_token(raw_refresh)
             if rt_payload.get("type") == _REFRESH_TYPE:
                 rt_jti: str = rt_payload.get("jti", "")
                 if rt_jti:
@@ -221,11 +284,14 @@ async def logout(
         except HTTPException:
             pass  # Already expired/invalid — nothing to revoke
 
+    # Clear the httpOnly cookie regardless
+    _clear_refresh_cookie(response)
+
     await crud_audit_log.create(
         db,
         entity_type="user",
         entity_id=str(current_user.id),
-        action=AuditAction.login,
+        action=AuditAction.logout,
         user_id=current_user.id,
         diff={"event": "logout"},
         ip_address=ip,

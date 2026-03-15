@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.pagination import Page, PageParams
-from app.core.security import ActiveUser, AdminUser
+from app.core.security import AdminUser, OperatorUser
 from app.crud.integration import crud_integration
 from app.schemas.integration import IntegrationCreate, IntegrationRead, IntegrationUpdate, SyncLogRead
 
@@ -15,9 +15,10 @@ router = APIRouter()
 @router.get("", response_model=Page[IntegrationRead])
 async def list_integrations(
     db: AsyncSession = Depends(get_db),
-    _: ActiveUser = None,
+    _: OperatorUser = None,
     pagination: PageParams = Depends(),
 ):
+    """List integrations. Operator role required — integrations contain sensitive host info."""
     items, total = await crud_integration.get_multi(db, skip=pagination.offset, limit=pagination.size)
     return Page.create([IntegrationRead.model_validate(i) for i in items], total, pagination)
 
@@ -36,7 +37,7 @@ async def create_integration(
 async def get_integration(
     integration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ActiveUser = None,
+    _: OperatorUser = None,
 ):
     obj = await crud_integration.get(db, id=integration_id)
     if not obj:
@@ -74,8 +75,9 @@ async def delete_integration(
 async def get_integration_logs(
     integration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ActiveUser = None,
+    _: OperatorUser = None,
 ):
+    """Sync logs are operator-only — they may reveal internal host topology details."""
     obj = await crud_integration.get(db, id=integration_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Integration not found")
@@ -87,9 +89,9 @@ async def get_integration_logs(
 async def trigger_sync(
     integration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ActiveUser = None,
+    _: OperatorUser = None,
 ):
-    """Trigger an immediate sync. Phase 8 will wire real logic."""
+    """Trigger an immediate sync. Operator role required. Phase 8 will wire real logic."""
     obj = await crud_integration.get(db, id=integration_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Integration not found")
@@ -100,9 +102,9 @@ async def trigger_sync(
 async def test_integration(
     integration_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ActiveUser = None,
+    _: OperatorUser = None,
 ):
-    """Test connectivity. Phase 8 will wire real logic."""
+    """Test connectivity. Operator role required. Phase 8 will wire real logic."""
     obj = await crud_integration.get(db, id=integration_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Integration not found")

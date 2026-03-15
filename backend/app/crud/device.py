@@ -34,7 +34,9 @@ class CRUDDevice(CRUDBase[Device, DeviceCreate, DeviceUpdate]):
         return result.scalar_one_or_none()
 
     async def create(self, db: AsyncSession, *, obj_in: DeviceCreate) -> Device:
-        data = obj_in.model_dump(exclude={"ssh_password", "ssh_key"})
+        data = obj_in.model_dump(exclude={"ssh_password", "ssh_key", "snmp_community"})
+        if obj_in.snmp_community:
+            data["snmp_community_enc"] = encrypt(obj_in.snmp_community)
         if obj_in.ssh_password:
             data["ssh_password_enc"] = encrypt(obj_in.ssh_password)
         if obj_in.ssh_key:
@@ -54,6 +56,9 @@ class CRUDDevice(CRUDBase[Device, DeviceCreate, DeviceUpdate]):
             update_data = obj_in.model_dump(exclude_unset=True)
 
         # Handle plaintext → encrypted fields
+        if "snmp_community" in update_data:
+            val = update_data.pop("snmp_community")
+            update_data["snmp_community_enc"] = encrypt(val) if val else None
         if "ssh_password" in update_data:
             val = update_data.pop("ssh_password")
             update_data["ssh_password_enc"] = encrypt(val) if val else None

@@ -11,7 +11,7 @@ class PageParams:
     def __init__(
         self,
         page: Annotated[int, Query(ge=1, description="Page number")] = 1,
-        size: Annotated[int, Query(ge=1, le=500, description="Items per page")] = 50,
+        size: Annotated[int, Query(ge=1, le=100, description="Items per page")] = 50,
     ):
         self.page = page
         self.size = size

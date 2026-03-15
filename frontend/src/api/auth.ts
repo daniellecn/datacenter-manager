@@ -4,14 +4,16 @@ import { useAuthStore } from "@/store/authStore";
 import type { TokenResponse, UserRead } from "@/types";
 
 export function useLogin() {
-  const { setTokens } = useAuthStore();
+  const { setAccessToken } = useAuthStore();
   return useMutation({
     mutationFn: async (creds: { username: string; password: string }) => {
       const { data } = await api.post<TokenResponse>("/auth/login", creds);
       return data;
     },
     onSuccess: (data) => {
-      setTokens(data.access_token, data.refresh_token);
+      // The backend sets the refresh token as an httpOnly cookie automatically.
+      // We only store the short-lived access token in memory.
+      setAccessToken(data.access_token);
     },
   });
 }
@@ -28,10 +30,12 @@ export function useMe() {
 }
 
 export function useLogout() {
-  const { clearAuth, refreshToken } = useAuthStore();
+  const { clearAuth } = useAuthStore();
   return useMutation({
     mutationFn: async () => {
-      await api.post("/auth/logout", { refresh_token: refreshToken });
+      // No body needed — the backend reads the refresh token from the httpOnly
+      // cookie and revokes it server-side.
+      await api.post("/auth/logout", {});
     },
     onSettled: () => {
       clearAuth();

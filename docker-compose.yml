@@ -48,6 +48,9 @@ services:
   nginx:
     image: nginx:alpine
     ports:
+      # SECURITY: In production, restrict these bindings to specific IPs using
+      # "192.168.x.x:80:80" or enforce host firewall rules (iptables/ufw/Windows
+      # Defender Firewall) to allow only trusted source networks.
       - "80:80"
       - "443:443"
     volumes:

@@ -4,6 +4,9 @@ import { useAuthStore } from "@/store/authStore";
 const api = axios.create({
   baseURL: "/api/v1",
   headers: { "Content-Type": "application/json" },
+  // Required so the browser sends the httpOnly refresh-token cookie on
+  // cross-origin requests (dev: frontend :5173 → backend :8000 via proxy).
+  withCredentials: true,
 });
 
 // Attach JWT access token on every request
@@ -15,19 +18,37 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, attempt token refresh once, then retry the original request
-let isRefreshing = false;
-let failQueue: Array<{
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
-}> = [];
+// ── Token refresh ─────────────────────────────────────────────────────────────
+// SECURITY: Only one refresh is ever in-flight at a time. All concurrent 401
+// responses await the same Promise, eliminating the race condition where two
+// simultaneous requests could both attempt to rotate the refresh token.
 
-function processQueue(error: unknown, token: string | null = null) {
-  failQueue.forEach(({ resolve, reject }) => {
-    if (error) reject(error);
-    else resolve(token);
-  });
-  failQueue = [];
+let refreshPromise: Promise<string | null> | null = null;
+
+function doRefresh(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      // The refresh token is an httpOnly cookie — no body needed; the browser
+      // sends it automatically.
+      const { data } = await axios.post(
+        "/api/v1/auth/refresh",
+        {},
+        { withCredentials: true }
+      );
+      useAuthStore.getState().setAccessToken(data.access_token);
+      return data.access_token as string;
+    } catch {
+      useAuthStore.getState().clearAuth();
+      window.location.href = "/login";
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 api.interceptors.response.use(
@@ -40,41 +61,11 @@ api.interceptors.response.use(
       original.url !== "/auth/refresh" &&
       original.url !== "/auth/login"
     ) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
-      }
-
       original._retry = true;
-      isRefreshing = true;
-
-      const refreshToken = useAuthStore.getState().refreshToken;
-      if (!refreshToken) {
-        useAuthStore.getState().clearAuth();
-        window.location.href = "/login";
-        return Promise.reject(error);
-      }
-
-      try {
-        const { data } = await axios.post("/api/v1/auth/refresh", {
-          refresh_token: refreshToken,
-        });
-        useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
-        processQueue(null, data.access_token);
-        original.headers.Authorization = `Bearer ${data.access_token}`;
-        return api(original);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        useAuthStore.getState().clearAuth();
-        window.location.href = "/login";
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+      const token = await doRefresh();
+      if (!token) return Promise.reject(error);
+      original.headers.Authorization = `Bearer ${token}`;
+      return api(original);
     }
     return Promise.reject(error);
   }
