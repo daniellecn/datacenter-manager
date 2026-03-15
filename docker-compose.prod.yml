@@ -1,0 +1,89 @@
+# docker-compose.prod.yml — Production hardening overlay (Phase 14)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This file EXTENDS docker-compose.yml. It does NOT replace it.
+# Only values that differ from the base file are listed here.
+#
+# What this adds over the base:
+#   - restart: always  (restart even on Docker daemon reboot)
+#   - Resource limits  (CPU + memory caps to prevent runaway processes)
+#   - pg_hba.conf      (restrict PostgreSQL to internal Docker network only)
+#   - Tighter logging  (smaller rotation windows to conserve disk)
+#   - ENABLE_METRICS   (activates Prometheus /metrics endpoint)
+#   - Docs disabled    (OpenAPI UI turned off in production)
+
+services:
+
+  postgres:
+    restart: always
+    # Mount a custom pg_hba.conf that restricts connections to Docker-internal
+    # RFC-1918 ranges only. The -c flag overrides the default hba_file location.
+    command: postgres -c hba_file=/etc/postgresql/pg_hba.conf
+    volumes:
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  backend:
+    restart: always
+    environment:
+      ENABLE_METRICS: "true"     # activates prometheus-fastapi-instrumentator
+      ENVIRONMENT: production    # enables JSON logging, disables SQL echo
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "10"
+
+  frontend:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+        reservations:
+          memory: 32M
+          cpus: '0.05'
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "10"

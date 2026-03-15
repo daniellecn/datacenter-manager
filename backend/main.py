@@ -7,7 +7,15 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.logging_config import configure_logging
 from app.api.v1.router import api_router
+
+# Configure logging before any module-level loggers are used.
+# JSON in production, human-readable in development.
+configure_logging(
+    log_level=settings.log_level,
+    json_logs=(settings.environment != "development"),
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +91,26 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+# ── Prometheus metrics (Phase 14) ─────────────────────────────────────────────
+# Exposes GET /metrics in Prometheus text format.
+# Nginx restricts /metrics to internal IPs only — see nginx/nginx.conf.
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator  # noqa: PLC0415
+
+    Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        should_respect_env_var=True,
+        env_var_name="ENABLE_METRICS",
+        excluded_handlers=["/metrics", "/health", "/readiness"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    logger.info("Prometheus metrics enabled at /metrics")
+except ImportError:
+    logger.warning(
+        "prometheus-fastapi-instrumentator not installed — /metrics endpoint disabled. "
+        "Add it to requirements.txt to enable."
+    )
 
 
 @app.get("/health", tags=["health"])
