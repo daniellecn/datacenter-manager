@@ -29,6 +29,7 @@ const Settings = lazy(() => import("@/pages/Settings"));
 const ChangePassword = lazy(() => import("@/pages/ChangePassword"));
 const Topology = lazy(() => import("@/pages/Topology"));
 const TreeView = lazy(() => import("@/pages/TreeView"));
+const Search = lazy(() => import("@/pages/Search"));
 
 function PageLoader() {
   return (
@@ -122,6 +123,7 @@ export default function App() {
               <Route path="/audit" element={<AuditLog />} />
               <Route path="/users" element={<UserManagement />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/search" element={<Search />} />
             </Route>
           </Route>
 

@@ -126,7 +126,7 @@ async def global_search(
                 extra={
                     "total_u": r.total_u,
                     "status": r.status,
-                    "room_id": str(r.room_id),
+                    "corridor_id": str(r.corridor_id) if r.corridor_id else None,
                 },
             )
         )
