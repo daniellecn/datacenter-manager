@@ -208,7 +208,8 @@ fi
     fi
 } > .env
 
-success ".env written"
+chmod 600 .env
+success ".env written (permissions set to 600 — owner read/write only)"
 
 # ── Step 6: TLS certificates ──────────────────────────────────────────────────
 header "Step 6/10 — TLS certificates"
